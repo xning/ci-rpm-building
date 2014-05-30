@@ -123,7 +123,7 @@ function is_tgt_ok {
         is_krb5_full_principal "${user}" || user="${user}@$(get_krb5_default_realm)"
         is_krb5_full_principal "${user}" || return ${F:-1}
         is_tgt_forwardable "${user}" || return ${F:-1}
-        is_tgt_vaild_after "${user}" ${valid_time}
+        is_tgt_vaild_after "${user}" ${valid_time} || return ${F:-1}
         return ${T:-1}
     )
 }
@@ -216,7 +216,7 @@ function get_latest_rpms {
         LANG=C
         [ $# -lt 2 ] && return ${F:-1}
         tag="$1" && shift
-        koji latest-build --quiet ${tag} "$@" 2> /dev/null | cut -d ' ' -f 1
+        koji latest-build --quiet ${tag} "$@" 2> /dev/null | cut -s -d ' ' -f 1
     )
 }
 
