@@ -27,7 +27,7 @@ function is_krb5_full_principal {
         T=0 # True
         F=1 # False
         LANG=C
-        [ $# -lt 1 ] && return ${F:-1}
+        [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
         krb_domain=$(echo "$1" | cut -s -d '@' -f 2)
         [ -z "${krb_domain}" ] && return ${F:-1}
         return ${T:-0}
@@ -43,14 +43,10 @@ function get_krb5_cache_file_name {
         T=0 # True
         F=1 # False
         LANG=C
-        if [ $# -ge 1 ];then
-            user="$1"
-        else
-            user=$(get_current_user_name)
-        fi
-        is_krb5_full_principal "${user}" || user="${user}@$(get_krb5_default_realm)"
+        [ $# -ge 1 -a -n "$1" ] && user="$1"
+        is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
         is_krb5_full_principal "${user}" || return ${F:-1}
-        escape_user=$(echo "$user" | sed 's/\./\\\./' -)
+        escape_user=$(echo "${user}" | sed 's/\./\\\./' -)
         klist -l | grep -q -e "^${escape_user} \+" || return ${F:-1}
         cache_file=$(klist -l | grep -e "^${escape_user} \+" | cut -s -d ':' -f 2)
         [ -z "${cache_file}" ] && return ${F:-1}
@@ -64,20 +60,14 @@ function is_tgt_forwardable {
         T=0 # True
         F=1 # False
         LANG=C
-        valid_time=300
-        if [ $# -ge 1 ];then
-            user="$1"
-        else
-            user=$(get_current_user_name)
-        fi
-        is_krb5_full_principal "${user}" || user="${user}@$(get_krb5_default_realm)"
+        [ $# -ge 1 -a -n "$1" ] && user="$1"
+        is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
         is_krb5_full_principal "${user}" || return ${F:-1}
         cache_file=$(get_krb5_cache_file_name "${user}")
         [ -z "${cache_file}" ] && return ${F:-1}
         klist -f ${cache_file} | grep -A 2 'krbtgt/' | head -2 | grep 'Flags:' | sed 's/^.*Flags: \+\(.*\)$/\1/' | grep -q F || return ${F:-1}
         return ${T:-1}
     )
-
 }
 
 # is_tgt_valid_after user_name 3600
@@ -88,13 +78,9 @@ function is_tgt_vaild_after {
         LANG=C
         valid_time=300
         interval=15
-        if [ $# -ge 1 ] && [ -n "$1" ];then
-            user="$1"
-        else
-            user=$(get_current_user_name)
-        fi
-        [ $# -ge 2 ] && [ -n "$2" ] && valid_time=$2 && valid_time=$((valid_time+$interval))
-        is_krb5_full_principal "${user}" || user="${user}@$(get_krb5_default_realm)"
+        [ $# -ge 1 -a -n "$1" ] && user="$1"
+        [ $# -ge 2 -a -n "$2" ] && valid_time=$2 && valid_time=$((valid_time+$interval))
+        is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
         is_krb5_full_principal "${user}" || return ${F:-1}
         cache_file=$(get_krb5_cache_file_name "${user}")
         [ -z "${cache_file}" ] && return ${F:-1}
@@ -115,12 +101,8 @@ function is_tgt_ok {
         F=1 # False
         LANG=C
         valid_time=300
-        if [ $# -ge 1 ];then
-            user="$1"
-        else
-            user=$(get_current_user_name)
-        fi
-        is_krb5_full_principal "${user}" || user="${user}@$(get_krb5_default_realm)"
+        [ $# -ge 1 -a -n "$1" ] && user="$1"
+        is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
         is_krb5_full_principal "${user}" || return ${F:-1}
         is_tgt_forwardable "${user}" || return ${F:-1}
         is_tgt_vaild_after "${user}" ${valid_time} || return ${F:-1}
@@ -136,21 +118,20 @@ function is_tgt_ok {
 # So, we always begin at a known place
 # F.g., ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
 function ssh_config {
-    [ $# -lt 1 ] && return 1
-    CI_RPM_BUILD_USER=$(get_current_user_name)
+    export CI_RPM_BUILD_HOST=localhost
+    export CI_RPM_BUILD_USER=${USER}
     export CI_RPM_BUILD_DIR='/tmp'
-    export CI_RPM_BUILD_USER
-    [ $# -ge 1 ] && export CI_RPM_BUILD_HOST=$1
-    [ $# -ge 2 ] && [ -n "$2" ] && export CI_RPM_BUILD_USER=$2
-    [ $# -ge 3 ] && [ -n "$3" ] && export CI_RPM_BUILD_DIR=$3
+    [ $# -ge 1 -a -n "$2" ] && export CI_RPM_BUILD_HOST=$1
+    [ $# -ge 2 -a -n "$2" ] && export CI_RPM_BUILD_USER=$2
+    [ $# -ge 3 -a -n "$3" ] && export CI_RPM_BUILD_DIR=$3
     echo "${CI_RPM_BUILD_HOST}:${CI_RPM_BUILD_USER}:${CI_RPM_BUILD_DIR}"
-    return 0
+    return ${F:-0}
 }
 
 function is_ssh_ok {
     (
         LANG=C
-        ssh -K ${CI_RPM_BUILD_USER}@${CI_RPM_BUILD_HOST} ':' > /dev/null 2> /dev/null
+        ssh -K ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost} ':' > /dev/null 2> /dev/null
     )
 }
 
@@ -158,9 +139,9 @@ function ssh_upload {
     (
         LANG=C
         t=$(mktemp)
-        echo "cd ${CI_RPM_BUILD_DIR}" > $t
-        for f in "$@";do echo "put '$f'" >> $t;done
-        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER}@${CI_RPM_BUILD_HOST}
+        echo "cd ${CI_RPM_BUILD_DIR:-/tmp}" > $t
+        for f in "$@";do [ -n "$f" ] && echo "put '$f'" >> $t;done
+        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost}
         ret=$?
         rm -f $t
         return ${ret}
@@ -171,9 +152,9 @@ function ssh_download {
     (
         LANG=C
         t=$(mktemp)
-        echo "cd ${CI_RPM_BUILD_DIR}" > $t
-        for f in "$@";do echo "get '$f'" >> $t;done
-        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER}@${CI_RPM_BUILD_HOST}
+        echo "cd ${CI_RPM_BUILD_DIR:-/tmp}" > $t
+        for f in "$@";do [ -n "$f" ] && echo "get '$f'" >> $t;done
+        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost}
         ret=$?
         rm -f $t
         return ${ret}
@@ -183,12 +164,17 @@ function ssh_download {
 function ssh_exec {
     (
         LANG=C
-        for c in "$@";do [ -z "$s" ] && s=$c || s="$s;$c";done
-        ssh -K ${CI_RPM_BUILD_USER}@${CI_RPM_BUILD_HOST} "cd '${CI_RPM_BUILD_DIR}';$s"
+        for c in "$@";do { [ -z "$s" -a -n "$c" ] && s=$c; } || { [ -n "$c" ] && s="$s;$c"; } done
+        ssh -K ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost} "cd '${CI_RPM_BUILD_DIR:-/tmp}';$s"
     )
 }
 
 # Functions for koji
+
+function koji_config {
+    [ $# -lt 1 -o -z "$1" ] && return 1
+    [ $# -ge 1 ] && export CI_RPM_BUILD_TAG="$1"
+}
 
 function have_koji_to_login {
     koji moshimoshi > /dev/null 2> /dev/null
@@ -199,24 +185,21 @@ function get_pkgs_owned_by {
         T=0 # True
         F=1 # False
         LANG=C
-        if [ $# -ge 1 ];then
-            user="$1"
-        else
-            user=$(get_current_user_name)
-        fi
-        koji list-pkgs --quiet --owner=${user} 2>/dev/null | cut -s -d ' ' -f 1
+        [ $# -ge 1 -a -n "$1" ] && user="$1"
+        koji list-pkgs --quiet --owner=${user:-${USER}} 2>/dev/null | cut -s -d ' ' -f 1
     )
 }
 
-# get_latest_rpms tag pkg1 [pkg]
+# get_latest_rpms pkg1 [pkg]
+# If need set tag, pls export CI_RPM_BIULD_TAG var or call koji_config
 function get_latest_rpms {
     (
         T=0 # True
         F=1 # False
         LANG=C
-        [ $# -lt 2 ] && return ${F:-1}
-        tag="$1" && shift
-        koji latest-build --quiet ${tag} "$@" 2> /dev/null | cut -s -d ' ' -f 1
+        default_tag='eng-rhel-6'
+        [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
+        koji latest-build --quiet ${CI_RPM_BIULD_TAG:-${default_tag}} "$@" 2> /dev/null | cut -s -d ' ' -f 1
     )
 }
 
@@ -226,9 +209,9 @@ function download_latest_rpms {
         T=0 # True
         F=1 # False
         LANG=C
-        [ $# -lt 1 ] && return ${F:-1}
+        [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
         for rpm in "$@";do
-            koji download-build --debuginfo ${rpm}
+            [ -n "${rpm}" ] && koji download-build --debuginfo ${rpm}
         done
     )
 }
