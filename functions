@@ -123,6 +123,16 @@ function is_tgt_ok {
 # we sftp/ssh a server
 # So, we always begin at a known place
 # F.g., ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
+##
+# First login, we need import the server key, and the bad news
+# is, if we do this in script, we need an automatically solution.
+# While it's not as easy as we we think. So, we just gives
+# useful commands:
+# ssh-keyscan hostname >> ~/.ssh/known_hosts
+# ssh-keyscan -H hostname >> ~/.ssh/known_hosts
+# If you need make sure whether or not the server key has been in
+# known_hosts file, you can do as follows
+# ssh-keygen -R hostname || ssh-keyscan -H hostname >> ~/.ssh/known_hosts
 function ssh_config {
     export CI_RPM_BUILD_HOST=localhost
     export CI_RPM_BUILD_USER=${USER}
@@ -178,8 +188,8 @@ function ssh_exec {
 # Functions for koji
 
 function koji_config {
-    [ $# -lt 1 -o -z "$1" ] && return 1
-    export CI_RPM_BUILD_TAG="$1"
+    [ -n "$1" ] && export CI_RPM_BUILD_TAG="$1"
+    echo ${CI_RPM_BUILD_TAG:-eng-rhel-6}
 }
 
 function have_koji_to_login {
