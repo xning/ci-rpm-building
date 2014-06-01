@@ -44,8 +44,10 @@ function get_krb5_cache_file_name {
         F=1 # False
         LANG=C
         [ $# -ge 1 -a -n "$1" ] && user="$1"
-        is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
-        is_krb5_full_principal "${user}" || return ${F:-1}
+        if ! is_krb5_full_principal "${user:-${USER}}";then
+            user="${user:-${USER}}@$(get_krb5_default_realm)"
+            is_krb5_full_principal "${user}" || return ${F:-1}
+        fi
         escape_user=$(echo "${user}" | sed 's/\./\\\./' -)
         klist -l | grep -q -e "^${escape_user} \+" || return ${F:-1}
         cache_file=$(klist -l | grep -e "^${escape_user} \+" | cut -s -d ':' -f 2)
@@ -61,8 +63,10 @@ function is_tgt_forwardable {
         F=1 # False
         LANG=C
         [ $# -ge 1 -a -n "$1" ] && user="$1"
-        is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
-        is_krb5_full_principal "${user}" || return ${F:-1}
+        if ! is_krb5_full_principal "${user:-${USER}}";then
+            user="${user:-${USER}}@$(get_krb5_default_realm)"
+            is_krb5_full_principal "${user}" || return ${F:-1}
+        fi
         cache_file=$(get_krb5_cache_file_name "${user}")
         [ -z "${cache_file}" ] && return ${F:-1}
         klist -f ${cache_file} | grep -A 2 'krbtgt/' | head -2 | grep 'Flags:' | sed 's/^.*Flags: \+\(.*\)$/\1/' | grep -q F || return ${F:-1}
@@ -80,8 +84,10 @@ function is_tgt_vaild_after {
         interval=15
         [ $# -ge 1 -a -n "$1" ] && user="$1"
         [ $# -ge 2 -a -n "$2" ] && valid_time=$2 && valid_time=$((valid_time+$interval))
-        is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
-        is_krb5_full_principal "${user}" || return ${F:-1}
+        if ! is_krb5_full_principal "${user:-${USER}}";then
+            user="${user:-${USER}}@$(get_krb5_default_realm)"
+            is_krb5_full_principal "${user}" || return ${F:-1}
+        fi
         cache_file=$(get_krb5_cache_file_name "${user}")
         [ -z "${cache_file}" ] && return ${F:-1}
         expire_time=$(date -d "$(LC_TIME=C klist ${cache_file} | grep 'krbtgt/' | head -1 | sed 's/ \+/ /g' | cut -s -d ' ' -f 3-4)" +"%s")
@@ -173,7 +179,7 @@ function ssh_exec {
 
 function koji_config {
     [ $# -lt 1 -o -z "$1" ] && return 1
-    [ $# -ge 1 ] && export CI_RPM_BUILD_TAG="$1"
+    export CI_RPM_BUILD_TAG="$1"
 }
 
 function have_koji_to_login {
@@ -210,8 +216,10 @@ function download_latest_rpms {
         F=1 # False
         LANG=C
         [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
+        ret=0
         for rpm in "$@";do
-            [ -n "${rpm}" ] && koji download-build --debuginfo ${rpm}
+            [ -n "${rpm}" ] && koji download-build --debuginfo ${rpm} && ret=$((ret+$?))
         done
+        return ${ret}
     )
 }
