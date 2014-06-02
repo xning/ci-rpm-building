@@ -1,4 +1,4 @@
-# CI-RPM-Building
+###### CI-RPM-Building ######
 
 ## Why we need ci-rpm-building?
 
@@ -43,6 +43,10 @@ script. Surely the remote server runs ssh daemon and the ssh daemon uses
 1. Setting up ssh daemon that use [Kerberos](http://web.mit.edu/kerberos/) authentication.
 
 2. Installing and configuring koji on the server.
+
+3. Packages that we need
+
+    yum -y install krb5-workstation perl-Authen-Krb5
 
 ### How to use [CI-RPM-Building](https://github.com/xning/ci-rpm-building)?
 
