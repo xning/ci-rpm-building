@@ -75,7 +75,7 @@ This should be the first functions that you should exec before the following fun
     ssh_download [file_path1] [file_path2] ...
     ssh_exec [command1] [command2] ...
 
-#### Functions for koji
+### Functions for koji
 
     koji_config [tag]
 You should exec koji_config first before the following functions
