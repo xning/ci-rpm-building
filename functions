@@ -132,7 +132,7 @@ function is_tgt_ok {
 # ssh-keyscan -H hostname >> ~/.ssh/known_hosts
 # If you need make sure whether or not the server key has been in
 # known_hosts file, you can do as follows
-# ssh-keygen -R hostname || ssh-keyscan -H hostname >> ~/.ssh/known_hosts
+# ssh-keygen -F hostname || ssh-keyscan -H hostname >> ~/.ssh/known_hosts
 function ssh_config {
     export CI_RPM_BUILD_HOST=localhost
     export CI_RPM_BUILD_USER=${USER}
@@ -206,7 +206,11 @@ function get_pkgs_owned_by {
     )
 }
 
-# get_latest_rpms pkg1 [pkg]
+# The following functions aren't always work well. They depend on packages building
+# time. So, except you build the packages in time, you cannot get and download RPMs.
+# You can think these functions as UDP.
+
+# get_latest_rpms pkg1 [pkg2] ...
 # If need set tag, pls export CI_RPM_BIULD_TAG var or call koji_config
 function get_latest_rpms {
     (
