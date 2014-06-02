@@ -129,6 +129,7 @@ function is_tgt_ok {
 # While it's not as easy as we we think. So, we just gives
 # useful commands:
 # ssh-keyscan hostname >> ~/.ssh/known_hosts
+# If you need hash the output, use the following command
 # ssh-keyscan -H hostname >> ~/.ssh/known_hosts
 # If you need make sure whether or not the server key has been in
 # known_hosts file, you can do as follows
