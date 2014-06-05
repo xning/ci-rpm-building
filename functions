@@ -1,4 +1,4 @@
-# anzhou94@gmail.com
+# anzhou94@gmail.com
 # requirements:
 # krb5-workstation perl-Authen-Krb5
 
@@ -50,7 +50,7 @@ function get_krb5_cache_file_name {
         fi
         escape_user=$(echo "${user}" | sed 's/\./\\\./' -)
         klist -l | grep -q -e "^${escape_user} \+" || return ${F:-1}
-        cache_file=$(klist -l | grep -e "^${escape_user} \+" | cut -s -d ':' -f 2)
+        cache_file=$(klist -l | grep -e "^${escape_user} \+" | cut -s -d ':' -f 2 | sed 's/ (Expired)$//')
         [ -z "${cache_file}" ] && return ${F:-1}
         echo $cache_file
         return ${T:-0}
