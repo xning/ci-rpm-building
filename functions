@@ -234,8 +234,8 @@ function download_latest_rpms {
         [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
         ret=0
         for rpm in "$@";do
-            [ -n "${rpm}" ] && koji download-build --debuginfo ${rpm} && ret=$((ret+$?))
+            [ -n "${rpm}" ] && koji download-build --debuginfo ${rpm} || ret=1
         done
-        return ${ret}
+        return ${ret:-0}
     )
 }
