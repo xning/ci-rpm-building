@@ -1,4 +1,4 @@
-# anzhou94@gmail.com
+# anzhou94@gmail.com
 # requirements:
 # krb5-workstation perl-Authen-Krb5
 
@@ -137,7 +137,7 @@ function is_tgt_ok {
 function ssh_config {
     export CI_RPM_BUILD_HOST=localhost
     export CI_RPM_BUILD_USER=${USER}
-    export CI_RPM_BUILD_DIR='/tmp'
+    export CI_RPM_BUILD_DIR='~'
     [ $# -ge 1 -a -n "$2" ] && export CI_RPM_BUILD_HOST=$1
     [ $# -ge 2 -a -n "$2" ] && export CI_RPM_BUILD_USER=$2
     [ $# -ge 3 -a -n "$3" ] && export CI_RPM_BUILD_DIR=$3
@@ -156,7 +156,7 @@ function ssh_upload {
     (
         LANG=C
         t=$(mktemp)
-        echo "cd ${CI_RPM_BUILD_DIR:-/tmp}" > $t
+        [ -n "${CI_RPM_BUILD_DIR}" -a ${CI_RPM_BUILD_DIR} != '~' ] && echo "cd ${CI_RPM_BUILD_DIR}" > $t
         for f in "$@";do [ -n "$f" ] && echo "put '$f'" >> $t;done
         sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost}
         ret=$?
@@ -169,7 +169,7 @@ function ssh_download {
     (
         LANG=C
         t=$(mktemp)
-        echo "cd ${CI_RPM_BUILD_DIR:-/tmp}" > $t
+        [ -n "${CI_RPM_BUILD_DIR}" -a ${CI_RPM_BUILD_DIR} != '~' ] && echo "cd ${CI_RPM_BUILD_DIR}" > $t
         for f in "$@";do [ -n "$f" ] && echo "get '$f'" >> $t;done
         sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost}
         ret=$?
@@ -182,7 +182,8 @@ function ssh_exec {
     (
         LANG=C
         for c in "$@";do { [ -z "$s" -a -n "$c" ] && s=$c; } || { [ -n "$c" ] && s="$s;$c"; } done
-        ssh -K ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost} "cd '${CI_RPM_BUILD_DIR:-/tmp}';$s"
+        [ -n "${CI_RPM_BUILD_DIR}" -a ${CI_RPM_BUILD_DIR} != '~' ] && echo s="cd '${CI_RPM_BUILD_DIR}';$s"
+        ssh -K ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost} "$s"
     )
 }
 
