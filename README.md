@@ -6,7 +6,7 @@ Is [Jenkins](http://jenkins-ci.org/) not enough to build RPMs automatically?
 No, it isn't.
 
 -  If you need build RPMs on a koji that jenkins cannot login in.
--  If you need build yum repos for these packages 
+-  If you need build yum repos for these packages.
 
 ## Install and Configure [CI-RPM-Building](https://github.com/xning/ci-rpm-building)
 
@@ -67,20 +67,20 @@ script. Surely the remote server runs ssh daemon and the ssh daemon uses
     
 ### Functions to work with [ssh/sftp](http://www.openssh.com/)
 
-    ssh_config [host] [user] [dir]
+    ssh_config [[host] [[user] [worddir [hash_known_host]]]]
 This should be the first functions that you should exec before the following functions.
 
     is_ssh_ok
-    ssh_upload [file_path1] [file_path2] ...
-    ssh_download [file_path1] [file_path2] ...
-    ssh_exec [command1] [command2] ...
+    ssh_upload [file_path1 [file_path2 [...]]]
+    ssh_download [file_path1 [file_path2 [...]]]
+    ssh_exec [command1 [command2 [...]]]
 
 ### Functions for koji
 
-    koji_config [tag]
-You should exec koji_config first before the following functions
+    koji_config [build_tag [result_tag [get_raw_data]]]
+You should exec koji*config first before the following functions
 
     have_koji_to_login
     get_pkgs_owned_by [user_name]
-    get_latest_rpms pkg1 [pkg2] ...
-    download_latest_rpms rpm1 [rpm2] ...
+    get_rpm_from_pkg pkg
+    get_rpm_info_idx rpm

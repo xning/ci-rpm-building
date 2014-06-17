@@ -204,6 +204,7 @@ function ssh_exec {
 #       koji_config tag
 # Default tag is eng-rhel-6. This default action works well
 # even you don't run koji_config function first.
+# koji_config build_tag result_tag raw_data
 function koji_config {
     [ $# -ge 1 -a -n "$1" ] && export CI_RPM_KOJI_BUILD_TAG="$1"
     [ $# -ge 2 -a -n "$2" ] && export CI_RPM_KOJI_RESULT_TAG="$2"
@@ -215,7 +216,7 @@ function have_koji_to_login {
     koji moshimoshi > /dev/null 2> /dev/null
 }
 
-# get_pkgs_owned_by [user [tag]]
+# get_pkgs_owned_by [user]
 function get_pkgs_owned_by {
     (
         T=0 # True
@@ -224,38 +225,6 @@ function get_pkgs_owned_by {
         [ $# -ge 1 -a -n "$1" ] && user="$1"
 
         koji list-pkgs --quiet --owner=${user:-${USER}} --tag ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6} 2>/dev/null | cut -s -d ' ' -f 1
-    )
-}
-
-# The following functions aren't always work well. They depend on packages building
-# time. So, except you build the packages in time, you cannot get and download RPMs.
-# You can think these functions as UDP. :)
-
-# get_latest_rpms pkg1 [pkg2] ...
-# If need set tag, pls export CI_RPM_BIULD_TAG var or call koji_config first.
-function get_latest_rpms {
-    (
-        T=0 # True
-        F=1 # False
-        LANG=C
-        default_tag='eng-rhel-6'
-        [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
-        koji latest-build --quiet ${CI_RPM_BIULD_TAG:-${default_tag}} "$@" 2> /dev/null | cut -s -d ' ' -f 1
-    )
-}
-
-
-function download_latest_rpms {
-    (
-        T=0 # True
-        F=1 # False
-        LANG=C
-        [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
-        ret=0
-        for rpm in "$@";do
-            [ -n "${rpm}" ] && koji download-build --debuginfo ${rpm} || ret=1
-        done
-        return ${ret:-0}
     )
 }
 
