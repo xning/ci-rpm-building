@@ -2,8 +2,11 @@
 # requirements:
 # krb5-workstation perl-Authen-Krb5
 
-T=0 # True
-F=1 # False
+# Take care pls, in shell, 0 is true, and others are false.
+# We follow this tradition in the following functions.
+T=0
+F=1
+
 LANG=C # To make no trouble, we only use English
 
 # Here, the most important argument for these functions is
@@ -134,21 +137,28 @@ function is_tgt_ok {
 # If you need make sure whether or not the server key has been in
 # known_hosts file, you can do as follows
 # ssh-keygen -F hostname || ssh-keyscan -H hostname >> ~/.ssh/known_hosts
+# Now is_ssh_ok will import ssh server key automatically.
+# ssh_config [server [user [[workdir hash_known_host]]]]
 function ssh_config {
-    export CI_RPM_BUILD_HOST=localhost
-    export CI_RPM_BUILD_USER=${USER}
-    export CI_RPM_BUILD_DIR='~'
-    [ $# -ge 1 -a -n "$2" ] && export CI_RPM_BUILD_HOST=$1
-    [ $# -ge 2 -a -n "$2" ] && export CI_RPM_BUILD_USER=$2
-    [ $# -ge 3 -a -n "$3" ] && export CI_RPM_BUILD_DIR=$3
-    echo "${CI_RPM_BUILD_HOST}:${CI_RPM_BUILD_USER}:${CI_RPM_BUILD_DIR}"
+    export CI_RPM_SSH_SERVER=localhost
+    export CI_RPM_SSH_USER=${USER}
+    export CI_RPM_SSH_WORK_DIR='~'
+    export CI_SSH_HASH_KNOWN_HOSTS=${T:-0}
+    [ $# -ge 1 -a -n "$1" ] && export CI_RPM_SSH_SERVER=$1
+    [ $# -ge 2 -a -n "$2" ] && export CI_RPM_SSH_USER=$2
+    [ $# -ge 3 -a -n "$3" ] && export CI_RPM_SSH_WORK_DIR=$3
+    [ $# -ge 4 -a -n "$4" ] && export CI_SSH_HASH_KNOWN_HOSTS=$4
+    echo "${CI_RPM_SSH_SERVER}:${CI_RPM_SSH_USER}:${CI_RPM_SSH_WORK_DIR}:${CI_SSH_HASH_KNOWN_HOSTS}"
     return ${F:-0}
 }
 
+# Will automatically import ssh server key.
 function is_ssh_ok {
     (
         LANG=C
-        ssh -K ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost} ':' > /dev/null 2> /dev/null
+        [ ${CI_SSH_HASH_KNOWN_HOSTS:-0} -eq 0 ] && opt='-H' || opt=''
+        ssh-keygen -q -F ${CI_RPM_SSH_SERVER:-localhost} > /dev/null 2>&1 || ssh-keyscan ${opt} ${CI_RPM_SSH_SERVER:-localhost} >> ~/.ssh/known_hosts 2>/dev/null
+        ssh -o PasswordAuthentication=no -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} ':' > /dev/null 2> /dev/null
     )
 }
 
@@ -156,9 +166,9 @@ function ssh_upload {
     (
         LANG=C
         t=$(mktemp)
-        [ -n "${CI_RPM_BUILD_DIR}" -a ${CI_RPM_BUILD_DIR} != '~' ] && echo "cd ${CI_RPM_BUILD_DIR}" > $t
+        [ -n "${CI_RPM_SSH_WORK_DIR}" -a ${CI_RPM_SSH_WORK_DIR} != '~' ] && echo "cd ${CI_RPM_SSH_WORK_DIR}" > $t
         for f in "$@";do [ -n "$f" ] && echo "put '$f'" >> $t;done
-        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost}
+        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
         ret=$?
         rm -f $t
         return ${ret}
@@ -169,9 +179,9 @@ function ssh_download {
     (
         LANG=C
         t=$(mktemp)
-        [ -n "${CI_RPM_BUILD_DIR}" -a ${CI_RPM_BUILD_DIR} != '~' ] && echo "cd ${CI_RPM_BUILD_DIR}" > $t
+        [ -n "${CI_RPM_SSH_WORK_DIR}" -a ${CI_RPM_SSH_WORK_DIR} != '~' ] && echo "cd ${CI_RPM_SSH_WORK_DIR}" > $t
         for f in "$@";do [ -n "$f" ] && echo "get '$f'" >> $t;done
-        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost}
+        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
         ret=$?
         rm -f $t
         return ${ret}
@@ -182,38 +192,47 @@ function ssh_exec {
     (
         LANG=C
         for c in "$@";do { [ -z "$s" -a -n "$c" ] && s=$c; } || { [ -n "$c" ] && s="$s;$c"; } done
-        [ -n "${CI_RPM_BUILD_DIR}" -a ${CI_RPM_BUILD_DIR} != '~' ] && echo s="cd '${CI_RPM_BUILD_DIR}';$s"
-        ssh -K ${CI_RPM_BUILD_USER:-${USER}}@${CI_RPM_BUILD_HOST:-localhost} "$s"
+            [ -n "${CI_RPM_SSH_WORK_DIR}" -a ${CI_RPM_SSH_WORK_DIR} != '~' ] && echo s="cd '${CI_RPM_SSH_WORK_DIR}';$s"
+            ssh -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} "$s"
     )
 }
 
 # Functions for koji
 
+# If need set tag for the following koji functions,
+# pls use the koji_config function like this:
+#       koji_config tag
+# Default tag is eng-rhel-6. This default action works well
+# even you don't run koji_config function first.
 function koji_config {
-    [ -n "$1" ] && export CI_RPM_BUILD_TAG="$1"
-    echo ${CI_RPM_BUILD_TAG:-eng-rhel-6}
+    [ $# -ge 1 -a -n "$1" ] && export CI_RPM_KOJI_BUILD_TAG="$1"
+    [ $# -ge 2 -a -n "$2" ] && export CI_RPM_KOJI_RESULT_TAG="$2"
+    [ $# -ge 3 -a -n "$3" ] && export CI_RPM_KOJI_RAW="$3"
+    echo ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6}:${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate}:${CI_RPM_KOJI_RAW:-1}
 }
 
 function have_koji_to_login {
     koji moshimoshi > /dev/null 2> /dev/null
 }
 
+# get_pkgs_owned_by [user [tag]]
 function get_pkgs_owned_by {
     (
         T=0 # True
         F=1 # False
         LANG=C
         [ $# -ge 1 -a -n "$1" ] && user="$1"
-        koji list-pkgs --quiet --owner=${user:-${USER}} 2>/dev/null | cut -s -d ' ' -f 1
+
+        koji list-pkgs --quiet --owner=${user:-${USER}} --tag ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6} 2>/dev/null | cut -s -d ' ' -f 1
     )
 }
 
 # The following functions aren't always work well. They depend on packages building
 # time. So, except you build the packages in time, you cannot get and download RPMs.
-# You can think these functions as UDP.
+# You can think these functions as UDP. :)
 
 # get_latest_rpms pkg1 [pkg2] ...
-# If need set tag, pls export CI_RPM_BIULD_TAG var or call koji_config
+# If need set tag, pls export CI_RPM_BIULD_TAG var or call koji_config first.
 function get_latest_rpms {
     (
         T=0 # True
@@ -237,5 +256,45 @@ function download_latest_rpms {
             [ -n "${rpm}" ] && koji download-build --debuginfo ${rpm} || ret=1
         done
         return ${ret:-0}
+    )
+}
+
+# get_rpm_from_pkg pkg
+function get_rpm_from_pkg {
+    (
+        T=0 # True
+        F=1 # False
+        LANG=C
+        [ $# -eq 1 -a -n "$1" ] || return ${F:-1}
+        if [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ];then
+            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | awk -F '/' '{print $NF}' | sort | uniq
+        else
+            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | sort | uniq
+        fi
+    )
+}
+
+# This function will output such infos
+# build_id:task_id:rpm_owner:built_time
+# The built_time is UTC time. You can display it as locale time as follows
+# date -d @1369623600
+# get_rpm_info_idx rpm
+function get_rpm_info_idx {
+    (
+        T=0 # True
+        F=1 # False
+        LANG=C
+        [ $# -eq 1 -a -n "$1" ] || return ${F:-1}
+        s=$(koji rpminfo "$1" || return ${F:-1})
+        [ -n "$s" ] || return ${F:-1}
+        build_id=$(echo "$s" | grep -e '^Build ID: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' | cut -d ' ' -f 1)
+        task_id=$(echo "$s" | grep -e '^Build Task: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' | cut -d ' ' -f 1)
+        built_time="$(echo "$s" | grep -e '^Built: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' -e 's/\s*$//')"
+        [ -n "${build_id}" -a -n "${task_id}" -a -n "${built_time}" ] || return ${F:-1}
+        s=$(koji buildinfo ${build_id})
+        rpm_owner=$(echo "$s" | grep -e 'Built by: ' | cut -s -d ':' -f 2 |  sed -e 's/^\s*//' | cut -d ' ' -f 1)
+        [ -n "${rpm_owner}" ] || return ${F:-1}
+        [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ] && built_time=$(date +%s -d "${built_time}")
+        echo "${build_id}:${task_id}:${rpm_owner}:${built_time}"
     )
 }
