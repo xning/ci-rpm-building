@@ -68,6 +68,7 @@ script. Surely the remote server runs ssh daemon and the ssh daemon uses
 ### Functions to work with [ssh/sftp](http://www.openssh.com/)
 
     ssh_config [[host] [[user] [worddir [hash_known_host]]]]
+    
 This should be the first functions that you should exec before the following functions.
 
     is_ssh_ok
@@ -78,7 +79,8 @@ This should be the first functions that you should exec before the following fun
 ### Functions for koji
 
     koji_config [build_tag [result_tag [get_raw_data]]]
-You should exec koji*config first before the following functions
+    
+You should exec koji_config first before the following functions
 
     have_koji_to_login
     get_pkgs_owned_by [user_name]
