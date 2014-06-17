@@ -58,12 +58,12 @@ script. Surely the remote server runs ssh daemon and the ssh daemon uses
 
 ### Functions to control [Kerberos](http://web.mit.edu/kerberos/) authentication
 
-    is_krb5_full_principal [user_name]
+    is_krb5_full_principal [kerb_full_principal]
     get_krb5_default_realm
     get_krb5_cache_file_name [user_name or kerb principal]
     is_tgt_forwardable [user_name or kerb principal]
-    is_tgt_vaild_after [[user_name or kerb principal] seconds]
-    is_tgt_ok [user_name or kerb principal]
+    is_tgt_vaild_after [[user_name or kerb principal] valid_time]
+    is_tgt_ok [[user_name or kerb principal] valid_time]
     
 ### Functions to work with [ssh/sftp](http://www.openssh.com/)
 

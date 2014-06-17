@@ -2,86 +2,73 @@
 # requirements:
 # krb5-workstation perl-Authen-Krb5
 
-# Take care pls, in shell, 0 is true, and others are false.
+# Take care pls, in bash, 0 is true, and others are false.
 # We follow this tradition in the following functions.
-T=0
-F=1
+# I know you may be very angry about this feature. So, a good way
+# is to use the following vars if that make you happy:
+# $(true && echo $?)
+# $(false || echo $?)
 
-LANG=C # To make no trouble, we only use English
+#############################
+# 1. Functions for kerberos #
+#############################
 
-# Here, the most important argument for these functions is
-# the user name.
-
-# Common functions
-function wait_a_while {
-    sleep 3
-}
-
-function get_current_user_name {
-    id -u -n
-}
-
-# Functions for kerberos
-
-# Accept kerb principle as argument
-# F.g., is_krb5_full_principal "anzhou94@DOMAIN.COM"
+# Accept kerb principle as argument.
+# is_krb5_full_principal kerb_full_principal
 function is_krb5_full_principal {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
-        [ $# -lt 1 -o -z "$1" ] && return ${F:-1}
+        [ $# -lt 1 -o -z "$1" ] && return $(false || echo $?)
         krb_domain=$(echo "$1" | cut -s -d '@' -f 2)
-        [ -z "${krb_domain}" ] && return ${F:-1}
-        return ${T:-0}
+        [ -z "${krb_domain}" ] && return $(false || echo $?)
+        return $(true && echo $?)
     )
 }
 
 function get_krb5_default_realm {
-    perl -E 'use Authen::Krb5;Authen::Krb5::init_context();say Authen::Krb5::get_default_realm()'
+    LANG=C perl -E 'use Authen::Krb5;Authen::Krb5::init_context();say Authen::Krb5::get_default_realm()'
 }
 
+# get_krb5_cache_file_name [user_name]
+# get_krb5_cache_file_name [kerb_full_principal]
 function get_krb5_cache_file_name {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
         [ $# -ge 1 -a -n "$1" ] && user="$1"
         if ! is_krb5_full_principal "${user:-${USER}}";then
             user="${user:-${USER}}@$(get_krb5_default_realm)"
-            is_krb5_full_principal "${user}" || return ${F:-1}
+            is_krb5_full_principal "${user}" || return $(false || echo $?)
         fi
         escape_user=$(echo "${user}" | sed 's/\./\\\./' -)
-        klist -l | grep -q -e "^${escape_user} \+" || return ${F:-1}
+        klist -l | grep -q -e "^${escape_user} \+" || return $(false || echo $?)
         cache_file=$(klist -l | grep -e "^${escape_user} \+" | cut -s -d ':' -f 2 | sed 's/ (Expired)$//')
-        [ -z "${cache_file}" ] && return ${F:-1}
+        [ -z "${cache_file}" ] && return $(false || echo $?)
         echo $cache_file
-        return ${T:-0}
+        return $(true && echo $?)
     )
 }
 
+# is_tgt_forwardable [user_name]
+# is_tgt_forwardable [kerb_full_principal]
 function is_tgt_forwardable {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
         [ $# -ge 1 -a -n "$1" ] && user="$1"
         if ! is_krb5_full_principal "${user:-${USER}}";then
             user="${user:-${USER}}@$(get_krb5_default_realm)"
-            is_krb5_full_principal "${user}" || return ${F:-1}
+            is_krb5_full_principal "${user}" || return $(false || echo $?)
         fi
         cache_file=$(get_krb5_cache_file_name "${user}")
-        [ -z "${cache_file}" ] && return ${F:-1}
-        klist -f ${cache_file} | grep -A 2 'krbtgt/' | head -2 | grep 'Flags:' | sed 's/^.*Flags: \+\(.*\)$/\1/' | grep -q F || return ${F:-1}
-        return ${T:-1}
+        [ -z "${cache_file}" ] && return $(false || echo $?)
+        klist -f ${cache_file} | grep -A 2 'krbtgt/' | head -2 | grep 'Flags:' | sed 's/^.*Flags: \+\(.*\)$/\1/' | grep -q F || return $(false || echo $?)
+        return $(true && echo $?)
     )
 }
 
-# is_tgt_valid_after user_name 3600
+# is_tgt_valid_after [user_name [300]]
+# is_tgt_valid_after [kerb_full_principal [300]]
 function is_tgt_vaild_after {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
         valid_time=300
         interval=15
@@ -89,14 +76,14 @@ function is_tgt_vaild_after {
         [ $# -ge 2 -a -n "$2" ] && valid_time=$2 && valid_time=$((valid_time+$interval))
         if ! is_krb5_full_principal "${user:-${USER}}";then
             user="${user:-${USER}}@$(get_krb5_default_realm)"
-            is_krb5_full_principal "${user}" || return ${F:-1}
+            is_krb5_full_principal "${user}" || return $(false || echo $?)
         fi
         cache_file=$(get_krb5_cache_file_name "${user}")
-        [ -z "${cache_file}" ] && return ${F:-1}
+        [ -z "${cache_file}" ] && return $(false || echo $?)
         expire_time=$(date -d "$(LC_TIME=C klist ${cache_file} | grep 'krbtgt/' | head -1 | sed 's/ \+/ /g' | cut -s -d ' ' -f 3-4)" +"%s")
         current_time=$(date +"%s") && current_time=$((current_time+${valid_time}))
-        [ ${expire_time} -gt ${current_time} ] && return ${T:-0}
-        return ${F:-1}
+        [ ${expire_time} -gt ${current_time} ] && return $(true && echo $?)
+        return $(false || echo $?)
     )
 }
 
@@ -104,64 +91,54 @@ function is_tgt_vaild_after {
 # If no argument, the function will use env USER.
 # If no realm gaven, will use the defalut realm.
 # The ticket's expire time should be long than 300s
+# is_tgt_ok [user_name [valid_time]]
+# is_tgt_ok [kerb_full_principal [valid_time]]
 function is_tgt_ok {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
-        valid_time=300
         [ $# -ge 1 -a -n "$1" ] && user="$1"
         is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
-        is_krb5_full_principal "${user}" || return ${F:-1}
-        is_tgt_forwardable "${user}" || return ${F:-1}
-        is_tgt_vaild_after "${user}" ${valid_time} || return ${F:-1}
-        return ${T:-1}
+        is_krb5_full_principal "${user}" || return $(false || echo $?)
+        is_tgt_forwardable "${user}" || return $(false || echo $?)
+        [ $# -ge 2 -a -n "$2" ] && valid_time="$2"
+        is_tgt_vaild_after "${user}" ${valid_time:-300} || return $(false || echo $?)
+        return $(true && echo $?)
     )
 }
 
-# Functions for sftp
+#############################
+# 2. Functions for sftp/ssh #
+#############################
 
 # We expect you can always tell us where (the host)
-# who (the user) and the workspace (the dir) when
-# we sftp/ssh a server
-# So, we always begin at a known place
+# who (the user) and the workspace (work dir) when
+# we sftp/ssh a server. So, we always begin at the determined
+# position.
 # F.g., ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
-##
-# First login, we need import the server key, and the bad news
-# is, if we do this in script, we need an automatically solution.
-# While it's not as easy as we we think. So, we just gives
-# useful commands:
-# ssh-keyscan hostname >> ~/.ssh/known_hosts
-# If you need hash the output, use the following command
-# ssh-keyscan -H hostname >> ~/.ssh/known_hosts
-# If you need make sure whether or not the server key has been in
-# known_hosts file, you can do as follows
-# ssh-keygen -F hostname || ssh-keyscan -H hostname >> ~/.ssh/known_hosts
-# Now is_ssh_ok will import ssh server key automatically.
 # ssh_config [server [user [[workdir hash_known_host]]]]
 function ssh_config {
     export CI_RPM_SSH_SERVER=localhost
     export CI_RPM_SSH_USER=${USER}
     export CI_RPM_SSH_WORK_DIR='~'
-    export CI_SSH_HASH_KNOWN_HOSTS=${T:-0}
+    export CI_RPM_SSH_HASH_KNOWN_HOSTS=$(true && echo $?)
     [ $# -ge 1 -a -n "$1" ] && export CI_RPM_SSH_SERVER=$1
     [ $# -ge 2 -a -n "$2" ] && export CI_RPM_SSH_USER=$2
     [ $# -ge 3 -a -n "$3" ] && export CI_RPM_SSH_WORK_DIR=$3
-    [ $# -ge 4 -a -n "$4" ] && export CI_SSH_HASH_KNOWN_HOSTS=$4
-    echo "${CI_RPM_SSH_SERVER}:${CI_RPM_SSH_USER}:${CI_RPM_SSH_WORK_DIR}:${CI_SSH_HASH_KNOWN_HOSTS}"
-    return ${F:-0}
+    [ $# -ge 4 -a -n "$4" ] && export CI_RPM_SSH_HASH_KNOWN_HOSTS=$4
+    echo "${CI_RPM_SSH_SERVER}:${CI_RPM_SSH_USER}:${CI_RPM_SSH_WORK_DIR}:${CI_RPM_SSH_HASH_KNOWN_HOSTS}"
 }
 
-# Will automatically import ssh server key.
+# Will automatically import ssh server key and try login in
 function is_ssh_ok {
     (
         LANG=C
-        [ ${CI_SSH_HASH_KNOWN_HOSTS:-0} -eq 0 ] && opt='-H' || opt=''
+        [ ${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0} -eq 0 ] && opt='-H' || opt=''
         ssh-keygen -q -F ${CI_RPM_SSH_SERVER:-localhost} > /dev/null 2>&1 || ssh-keyscan ${opt} ${CI_RPM_SSH_SERVER:-localhost} >> ~/.ssh/known_hosts 2>/dev/null
         ssh -o PasswordAuthentication=no -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} ':' > /dev/null 2> /dev/null
     )
 }
 
+# ssh_upload [file1 [file2 [...]]]
 function ssh_upload {
     (
         LANG=C
@@ -175,6 +152,7 @@ function ssh_upload {
     )
 }
 
+# ssh_download [file1 [file2 [...]]]
 function ssh_download {
     (
         LANG=C
@@ -188,6 +166,7 @@ function ssh_download {
     )
 }
 
+# ssh_exec [cmd1 [cmd2 [...]]]
 function ssh_exec {
     (
         LANG=C
@@ -197,11 +176,12 @@ function ssh_exec {
     )
 }
 
-# Functions for koji
+#########################
+# 3. Functions for koji #
+#########################
 
 # If need set tag for the following koji functions,
 # pls use the koji_config function like this:
-#       koji_config tag
 # Default tag is eng-rhel-6. This default action works well
 # even you don't run koji_config function first.
 # koji_config build_tag result_tag raw_data
@@ -213,32 +193,26 @@ function koji_config {
 }
 
 function have_koji_to_login {
-    koji moshimoshi > /dev/null 2> /dev/null
+    LANG=C koji moshimoshi > /dev/null 2> /dev/null
 }
 
 # get_pkgs_owned_by [user]
 function get_pkgs_owned_by {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
         [ $# -ge 1 -a -n "$1" ] && user="$1"
-
-        koji list-pkgs --quiet --owner=${user:-${USER}} --tag ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6} 2>/dev/null | cut -s -d ' ' -f 1
-    )
+        koji list-pkgs --quiet --owner=${user:-${USER}} --tag ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6} 2>/dev/null | cut -s -d ' ' -f 1)
 }
 
 # get_rpm_from_pkg pkg
 function get_rpm_from_pkg {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
-        [ $# -eq 1 -a -n "$1" ] || return ${F:-1}
+        [ $# -eq 1 -a -n "$1" ] || return $(false || echo $?)
         if [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ];then
-            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | awk -F '/' '{print $NF}' | sort | uniq
+            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | awk -F '/' '{print $NF}'
         else
-            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | sort | uniq
+            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1"
         fi
     )
 }
@@ -250,19 +224,17 @@ function get_rpm_from_pkg {
 # get_rpm_info_idx rpm
 function get_rpm_info_idx {
     (
-        T=0 # True
-        F=1 # False
         LANG=C
-        [ $# -eq 1 -a -n "$1" ] || return ${F:-1}
-        s=$(koji rpminfo "$1" || return ${F:-1})
-        [ -n "$s" ] || return ${F:-1}
+        [ $# -eq 1 -a -n "$1" ] || return $(false || echo $?)
+        s=$(koji rpminfo "$1" || return $(false || echo $?))
+        [ -n "$s" ] || return $(false || echo $?)
         build_id=$(echo "$s" | grep -e '^Build ID: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' | cut -d ' ' -f 1)
         task_id=$(echo "$s" | grep -e '^Build Task: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' | cut -d ' ' -f 1)
         built_time="$(echo "$s" | grep -e '^Built: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' -e 's/\s*$//')"
-        [ -n "${build_id}" -a -n "${task_id}" -a -n "${built_time}" ] || return ${F:-1}
+        [ -n "${build_id}" -a -n "${task_id}" -a -n "${built_time}" ] || return $(false || echo $?)
         s=$(koji buildinfo ${build_id})
         rpm_owner=$(echo "$s" | grep -e 'Built by: ' | cut -s -d ':' -f 2 |  sed -e 's/^\s*//' | cut -d ' ' -f 1)
-        [ -n "${rpm_owner}" ] || return ${F:-1}
+        [ -n "${rpm_owner}" ] || return $(false || echo $?)
         [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ] && built_time=$(date +%s -d "${built_time}")
         echo "${build_id}:${task_id}:${rpm_owner}:${built_time}"
     )
