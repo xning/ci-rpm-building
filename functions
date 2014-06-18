@@ -42,7 +42,23 @@ function get_krb5_cache_file_name {
         fi
         escape_user=$(echo "${user}" | sed 's/\./\\\./' -)
         klist -l | grep -q -e "^${escape_user} \+" || return $(false || echo $?)
-        cache_file=$(klist -l | grep -e "^${escape_user} \+" | cut -s -d ':' -f 2 | sed 's/ (Expired)$//')
+        # On Fedora 16, klist no -l option.
+        # On Fedora 17, 18, 19, klist -l gives out such like:
+        #     Principal name                 Cache name
+        #     --------------                 ----------
+        #     anzhou94@REALM                 DIR::/tmp/krb5cc_1000
+        if eval 'klist -l > /dev/null 2>&1';then
+            s=$(klist -l | grep -e "^${escape_user} \+")
+            if echo $s | grep -q 'FILE:';then
+                cache_file=$(echo $s | cut -s -d ':' -f 2 | sed 's/ (Expired)$//')
+            elif echo $s | grep -q 'DIR:';then
+                cache_file=$(echo $s | cut -s -d ':' -f 3 | sed 's/ (Expired)$//')
+            else
+                cache_file=''
+            fi
+        else
+            cache_file=$(klist | grep -e '^Ticket cache: ' | cut -d ':' -f 3 | sed 's/ (Expired)$//')
+        fi
         [ -z "${cache_file}" ] && return $(false || echo $?)
         echo $cache_file
         return $(true && echo $?)
@@ -122,7 +138,7 @@ function is_tgt_ok {
 # tell us this by ssh_config function.
 # F.g.,
 # ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
-# ssh_config [server [user [[workdir hash_known_host]]]]
+# ssh_config [server [user [workdir [hash_known_host]]]]
 function ssh_config {
     export CI_RPM_SSH_SERVER=localhost
     export CI_RPM_SSH_USER=${USER}
@@ -135,7 +151,8 @@ function ssh_config {
     echo "${CI_RPM_SSH_SERVER}:${CI_RPM_SSH_USER}:${CI_RPM_SSH_WORK_DIR}:${CI_RPM_SSH_HASH_KNOWN_HOSTS}"
 }
 
-# Will automatically import ssh server key and try login in
+# Will automatically import ssh server key and try login in.
+# It's better to check the ssh server before we use it.
 function is_ssh_ok {
     (
         LANG=C
@@ -227,7 +244,7 @@ function get_rpm_from_pkg {
 }
 
 # This function will output such infos
-# build_id:task_id:rpm_owner:built_time
+#     build_id:task_id:rpm_owner:built_time
 # The built_time is UTC time. You can display it as locale time as follows
 #         date -d @1369623600
 # And sure it's simple to get current UTC time:
@@ -248,5 +265,38 @@ function get_rpm_info_idx {
         [ -n "${rpm_owner}" ] || return $(false || echo $?)
         [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ] && built_time=$(date +%s -d "${built_time}")
         echo "${build_id}:${task_id}:${rpm_owner}:${built_time}"
+    )
+}
+
+# This function will output such infos
+#     pkg_name:build_id:task_id:rpm_owner:built_time
+# get_pkgs_info_idx pkg1 [pkg2 [...]]
+function get_pkgs_info_idx {
+    (
+        LANG=C
+        [ $# -ge 1 -a -n "$1" ] || return $(false || echo $?)
+        o=$(pwd)
+        t=$(mktemp -d)
+        cd $t
+        for pkg in "$@";do
+            rm -rf *
+            export CI_RPM_KOJI_RAW=$(true && echo $?)
+            get_rpm_from_pkg ${pkg} > all_rpms_paths
+            touch tmp_all_rpms_paths
+            export CI_RPM_KOJI_RAW=$(false || echo $?)
+            for rpm_path in $(cat all_rpms_paths);do
+                rpm_path_regex=$(echo ${rpm_path} | sed -e 's/\./\\\./g')
+                grep -q -e "^${rpm_path_regex}\$" tmp_all_rpms_paths && continue
+                rpm=$(echo ${rpm_path} | awk -F '/' '{print $NF}')
+                s=$(get_rpm_info_idx $rpm)
+                build_id=$(echo $s | cut -s -d ':' -f 1)
+                [ -n "${build_id}" ] || return $(false || echo $?) 
+                koji buildinfo ${build_id} | grep -e '^/' -e '\.rpm$' >> tmp_all_rpms_paths
+                echo $pkg:$s
+            done
+        done
+        cd $o
+        rm -rf $t
+        return $(true && echo $?)
     )
 }
