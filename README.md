@@ -78,7 +78,7 @@ This should be the first functions that you should exec before the following fun
 
 ### Functions for koji
 
-    koji_config [build_tag [result_tag [get_raw_data]]]
+    koji_config [build_tag [result_tag [get_raw_data [how_new_RPMs_we_want]]]]
     
 You should exec koji_config first before the following functions
 
@@ -86,3 +86,24 @@ You should exec koji_config first before the following functions
     get_pkgs_owned_by [user_name [pkg]]
     get_rpm_from_pkg pkg
     get_rpm_info_idx rpm
+    get_pkgs_info_idx pkg1 [pkg2 [...]]
+
+
+## About [GNU date](http://www.gnu.org/s/coreutils/)
+
+### Some Exaples
+
+We need UTC time in koji functions.
+
+     # Get current UTC time
+     date +%s
+
+     # Covert UTC time to local time
+     date -d @1403083279
+     # A funny one
+     date -d @$(date +%s)
+
+     # Day or week
+     date -d '-1 day' +%s
+     date -d '-1 week' +%s
+     date -d '-1 month' +%s

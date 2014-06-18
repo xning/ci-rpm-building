@@ -209,12 +209,21 @@ function ssh_exec {
 # pls use the koji_config function like this:
 # Default tag is eng-rhel-6. This default action works well
 # even you don't run koji_config function first.
-# koji_config build_tag result_tag raw_data
+# NOTICE: you could setup how 'new' RPMs that you want by ssh_config.
+# We use GNU date command -d option to covert your input.
+# Default value is 1 week.
+# Surely, you can export 
+# koji_config [build_tag [presult_tag [raw_data [how_new]]]] 
 function koji_config {
     [ $# -ge 1 -a -n "$1" ] && export CI_RPM_KOJI_BUILD_TAG="$1"
     [ $# -ge 2 -a -n "$2" ] && export CI_RPM_KOJI_RESULT_TAG="$2"
     [ $# -ge 3 -a -n "$3" ] && export CI_RPM_KOJI_RAW="$3"
-    echo ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6}:${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate}:${CI_RPM_KOJI_RAW:-1}
+    export CI_RPM_KOJI_RPM_HOW_NEW=$(date -d '-1 week' +%s)
+    if [ $# -ge 4 -a -n "$4" ];then
+         eval "date -d '$4' +%s > /dev/null 2>&1" || return $(false || echo $?)
+         export CI_RPM_KOJI_RPM_HOW_NEW=(date -d "$4" +%s)
+    fi
+    echo ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6}:${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate}:${CI_RPM_KOJI_RAW:-1}:${CI_RPM_KOJI_RPM_HOW_NEW}
 }
 
 function have_koji_to_login {
@@ -275,20 +284,23 @@ function get_pkgs_info_idx {
     (
         LANG=C
         [ $# -ge 1 -a -n "$1" ] || return $(false || echo $?)
+        [ ${CI_RPM_KOJI_RPM_HOW_NEW:-0} -eq 0 ] && export CI_RPM_KOJI_RPM_HOW_NEW=$(date -d '-1 week' +%s)
         o=$(pwd)
         t=$(mktemp -d)
         cd $t
         for pkg in "$@";do
             rm -rf *
             export CI_RPM_KOJI_RAW=$(true && echo $?)
-            get_rpm_from_pkg ${pkg} > all_rpms_paths
+            get_rpm_from_pkg ${pkg} | tac > all_rpms_paths
             touch tmp_all_rpms_paths
             export CI_RPM_KOJI_RAW=$(false || echo $?)
             for rpm_path in $(cat all_rpms_paths);do
                 rpm_path_regex=$(echo ${rpm_path} | sed -e 's/\./\\\./g')
-                grep -q -e "^${rpm_path_regex}\$" tmp_all_rpms_paths && continue
+                grep -q -e "^${rpm_path_regex}\$" tmp_all_rpms_paths && continue 1
                 rpm=$(echo ${rpm_path} | awk -F '/' '{print $NF}')
                 s=$(get_rpm_info_idx $rpm)
+                built_time=$(echo $s | cut -s -d ':' -f 4)
+                [ ${CI_RPM_KOJI_RPM_HOW_NEW:-0} -le ${built_time} ] || continue 2
                 build_id=$(echo $s | cut -s -d ':' -f 1)
                 [ -n "${build_id}" ] || return $(false || echo $?) 
                 koji buildinfo ${build_id} | grep -e '^/' -e '\.rpm$' >> tmp_all_rpms_paths
