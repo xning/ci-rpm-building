@@ -204,12 +204,13 @@ function have_koji_to_login {
     LANG=C koji moshimoshi > /dev/null 2> /dev/null
 }
 
-# get_pkgs_owned_by [user]
+# get_pkgs_owned_by [user [pkg]]
 function get_pkgs_owned_by {
     (
         LANG=C
         [ $# -ge 1 -a -n "$1" ] && user="$1"
-        koji list-pkgs --quiet --owner=${user:-${USER}} --tag ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6} 2>/dev/null | cut -s -d ' ' -f 1)
+        [ $# -ge 2 -a -n "$2" ] && pkg="--package='$2'"
+        koji list-pkgs --quiet --owner=${user:-${USER}} ${pkg:-} --tag ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6} 2>/dev/null | cut -s -d ' ' -f 1)
 }
 
 # get_rpm_from_pkg pkg

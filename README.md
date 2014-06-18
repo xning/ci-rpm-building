@@ -83,6 +83,6 @@ This should be the first functions that you should exec before the following fun
 You should exec koji_config first before the following functions
 
     have_koji_to_login
-    get_pkgs_owned_by [user_name]
+    get_pkgs_owned_by [user_name [pkg]]
     get_rpm_from_pkg pkg
     get_rpm_info_idx rpm
