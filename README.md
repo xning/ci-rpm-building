@@ -58,7 +58,7 @@ script. Surely the remote server runs ssh daemon and the ssh daemon uses
 
 ### Functions to control [Kerberos](http://web.mit.edu/kerberos/) authentication
 
-    is_krb5_full_principal [kerb_full_principal]
+    is_krb5_full_principal [string]
     get_krb5_default_realm
     get_krb5_cache_file_name [user_name or kerb principal]
     is_tgt_forwardable [user_name or kerb principal]

@@ -13,8 +13,9 @@
 # 1. Functions for kerberos #
 #############################
 
-# Accept kerb principle as argument.
-# is_krb5_full_principal kerb_full_principal
+# Accept string as argument and check whether the string is like this:
+#                  user_name@kerb_real
+# is_krb5_full_principal string
 function is_krb5_full_principal {
     (
         LANG=C
@@ -114,7 +115,13 @@ function is_tgt_ok {
 # who (the user) and the workspace (work dir) when
 # we sftp/ssh a server. So, we always begin at the determined
 # position.
-# F.g., ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
+# When you login in a ssh server, if it's the first time that do
+# this, you will be asked to accept the server key or not. While
+# it's most possible that your ssh client will store the ssh server
+# key as hash, we don't make sure about this. So if need, you can
+# tell us this by ssh_config function.
+# F.g.,
+# ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
 # ssh_config [server [user [[workdir hash_known_host]]]]
 function ssh_config {
     export CI_RPM_SSH_SERVER=localhost
@@ -134,7 +141,7 @@ function is_ssh_ok {
         LANG=C
         [ ${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0} -eq 0 ] && opt='-H' || opt=''
         ssh-keygen -q -F ${CI_RPM_SSH_SERVER:-localhost} > /dev/null 2>&1 || ssh-keyscan ${opt} ${CI_RPM_SSH_SERVER:-localhost} >> ~/.ssh/known_hosts 2>/dev/null
-        ssh -o PasswordAuthentication=no -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} ':' > /dev/null 2> /dev/null
+        ssh -oPasswordAuthentication=no -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} ':' > /dev/null 2> /dev/null
     )
 }
 
@@ -145,7 +152,7 @@ function ssh_upload {
         t=$(mktemp)
         [ -n "${CI_RPM_SSH_WORK_DIR}" -a ${CI_RPM_SSH_WORK_DIR} != '~' ] && echo "cd ${CI_RPM_SSH_WORK_DIR}" > $t
         for f in "$@";do [ -n "$f" ] && echo "put '$f'" >> $t;done
-        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
+        sftp -oPasswordAuthentication=no -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
         ret=$?
         rm -f $t
         return ${ret}
@@ -159,20 +166,21 @@ function ssh_download {
         t=$(mktemp)
         [ -n "${CI_RPM_SSH_WORK_DIR}" -a ${CI_RPM_SSH_WORK_DIR} != '~' ] && echo "cd ${CI_RPM_SSH_WORK_DIR}" > $t
         for f in "$@";do [ -n "$f" ] && echo "get '$f'" >> $t;done
-        sftp -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
+        sftp -oPasswordAuthentication=no -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
         ret=$?
         rm -f $t
         return ${ret}
     )
 }
 
+# These cmds will be run in the same shell
 # ssh_exec [cmd1 [cmd2 [...]]]
 function ssh_exec {
     (
         LANG=C
         for c in "$@";do { [ -z "$s" -a -n "$c" ] && s=$c; } || { [ -n "$c" ] && s="$s;$c"; } done
             [ -n "${CI_RPM_SSH_WORK_DIR}" -a ${CI_RPM_SSH_WORK_DIR} != '~' ] && echo s="cd '${CI_RPM_SSH_WORK_DIR}';$s"
-            ssh -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} "$s"
+            ssh -oPasswordAuthentication=no -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} "$s"
     )
 }
 
