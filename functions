@@ -228,7 +228,9 @@ function get_rpm_from_pkg {
 # This function will output such infos
 # build_id:task_id:rpm_owner:built_time
 # The built_time is UTC time. You can display it as locale time as follows
-# date -d @1369623600
+#         date -d @1369623600
+# And sure it's simple to get current UTC time:
+#         date +%s
 # get_rpm_info_idx rpm
 function get_rpm_info_idx {
     (
