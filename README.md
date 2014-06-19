@@ -103,7 +103,7 @@ We need UTC time in koji functions.
      # A funny one
      date -d @$(date +%s)
 
-     # Day or week
+     # second, minute, day, week, month and year.
      date -d '-1 day' +%s
      date -d '-1 week' +%s
      date -d '-1 month' +%s

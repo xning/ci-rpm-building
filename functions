@@ -21,7 +21,8 @@ function is_krb5_full_principal {
         LANG=C
         [ $# -lt 1 -o -z "$1" ] && return $(false || echo $?)
         krb_domain=$(echo "$1" | cut -s -d '@' -f 2)
-        [ -z "${krb_domain}" ] && return $(false || echo $?)
+        ts=$(echo ${krb_domain} | tr a-z A-Z)
+        [ -z "${krb_domain}" -o "${ts}" != "${krb_domain}" ] && return $(false || echo $?)
         return $(true && echo $?)
     )
 }
@@ -51,7 +52,7 @@ function get_krb5_cache_file_name {
             s=$(klist -l | grep -e "^${escape_user} \+")
             if echo $s | grep -q 'FILE:';then
                 cache_file=$(echo $s | cut -s -d ':' -f 2 | sed 's/ (Expired)$//')
-            elif echo $s | grep -q 'DIR:';then
+            elif echo $s | grep -q 'DIR::';then
                 cache_file=$(echo $s | cut -s -d ':' -f 3 | sed 's/ (Expired)$//')
             else
                 cache_file=''
@@ -90,7 +91,13 @@ function is_tgt_vaild_after {
         valid_time=300
         interval=15
         [ $# -ge 1 -a -n "$1" ] && user="$1"
-        [ $# -ge 2 -a -n "$2" ] && valid_time=$2 && valid_time=$((valid_time+$interval))
+        if [ $# -ge 2 ];then
+            if eval "[ 0 -lt $2 ] > /dev/null 2>&1";then
+                [ -n "$2" ] && valid_time=$2 && valid_time=$((valid_time+$interval))
+            else
+                return $(false || echo $?)
+            fi
+        fi
         if ! is_krb5_full_principal "${user:-${USER}}";then
             user="${user:-${USER}}@$(get_krb5_default_realm)"
             is_krb5_full_principal "${user}" || return $(false || echo $?)
@@ -98,6 +105,7 @@ function is_tgt_vaild_after {
         cache_file=$(get_krb5_cache_file_name "${user}")
         [ -z "${cache_file}" ] && return $(false || echo $?)
         expire_time=$(date -d "$(LC_TIME=C klist ${cache_file} | grep 'krbtgt/' | head -1 | sed 's/ \+/ /g' | cut -s -d ' ' -f 3-4)" +"%s")
+        eval "[ 0 -lt ${expire_time} ] >/dev/null 2>&1" || return $(false || echo $?)
         current_time=$(date +"%s") && current_time=$((current_time+${valid_time}))
         [ ${expire_time} -gt ${current_time} ] && return $(true && echo $?)
         return $(false || echo $?)
@@ -117,7 +125,13 @@ function is_tgt_ok {
         is_krb5_full_principal "${user:-${USER}}" || user="${user:-${USER}}@$(get_krb5_default_realm)"
         is_krb5_full_principal "${user}" || return $(false || echo $?)
         is_tgt_forwardable "${user}" || return $(false || echo $?)
-        [ $# -ge 2 -a -n "$2" ] && valid_time="$2"
+        if [ $# -ge 2 ];then
+            if eval "[ 0 -lt $2 ] > /dev/null 2>&1";then
+                [ -n "$2" ] && valid_time="$2"
+            else
+                return $(false || echo $?)
+            fi
+        fi
         is_tgt_vaild_after "${user}" ${valid_time:-300} || return $(false || echo $?)
         return $(true && echo $?)
     )
@@ -131,11 +145,11 @@ function is_tgt_ok {
 # who (the user) and the workspace (work dir) when
 # we sftp/ssh a server. So, we always begin at the determined
 # position.
-# When you login in a ssh server, if it's the first time that do
-# this, you will be asked to accept the server key or not. While
-# it's most possible that your ssh client will store the ssh server
-# key as hash, we don't make sure about this. So if need, you can
-# tell us this by ssh_config function.
+# When you first login in a ssh server, you will be asked to accept
+# the server key or not. It's most possible that your ssh
+# client will store the ssh server key as hash, while we don't make
+# sure about this. So if need, pls tell us this by ssh_config
+# if need. Default we store the hashed ssh server key.
 # F.g.,
 # ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
 # ssh_config [server [user [workdir [hash_known_host]]]]
@@ -147,7 +161,13 @@ function ssh_config {
     [ $# -ge 1 -a -n "$1" ] && export CI_RPM_SSH_SERVER=$1
     [ $# -ge 2 -a -n "$2" ] && export CI_RPM_SSH_USER=$2
     [ $# -ge 3 -a -n "$3" ] && export CI_RPM_SSH_WORK_DIR=$3
-    [ $# -ge 4 -a -n "$4" ] && export CI_RPM_SSH_HASH_KNOWN_HOSTS=$4
+    if [ $# -ge 4 ];then
+        if eval "[ 0 -le $4 -o 0 -gt $4 ] > /dev/null 2>&1";then
+            [ -n "$4" ] && export CI_RPM_SSH_HASH_KNOWN_HOSTS=$4
+        else
+            return $(false || echo $?)
+        fi
+    fi
     echo "${CI_RPM_SSH_SERVER}:${CI_RPM_SSH_USER}:${CI_RPM_SSH_WORK_DIR}:${CI_RPM_SSH_HASH_KNOWN_HOSTS}"
 }
 
@@ -156,7 +176,11 @@ function ssh_config {
 function is_ssh_ok {
     (
         LANG=C
-        [ ${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0} -eq 0 ] && opt='-H' || opt=''
+        if eval "[ ${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0} -le 0 -o ${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0} -gt 0 ] > /dev/null 2>&1";then
+            [ ${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0} -eq 0 ] && opt='-H' || opt=''
+        else
+            return $(false || echo $?)
+        fi
         ssh-keygen -q -F ${CI_RPM_SSH_SERVER:-localhost} > /dev/null 2>&1 || ssh-keyscan ${opt} ${CI_RPM_SSH_SERVER:-localhost} >> ~/.ssh/known_hosts 2>/dev/null
         ssh -oPasswordAuthentication=no -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} ':' > /dev/null 2> /dev/null
     )
@@ -209,19 +233,27 @@ function ssh_exec {
 # pls use the koji_config function like this:
 # Default tag is eng-rhel-6. This default action works well
 # even you don't run koji_config function first.
-# NOTICE: you could setup how 'new' RPMs that you want by ssh_config.
-# We use GNU date command -d option to covert your input.
+# NOTICE: you could setup how 'new' RPMs that you're interested in
+# by ssh_config.
+# We use GNU date command -d option to covert the time that your input.
 # Default value is 1 week.
-# Surely, you can export 
+# Some date examples:
+# date +%s -d '-1 day'
+# date +%s -d '-1 hour'
+# You can also use 'second, minute, week, month, and year'.
+# Surely, you can export
 # koji_config [build_tag [presult_tag [raw_data [how_new]]]] 
 function koji_config {
     [ $# -ge 1 -a -n "$1" ] && export CI_RPM_KOJI_BUILD_TAG="$1"
     [ $# -ge 2 -a -n "$2" ] && export CI_RPM_KOJI_RESULT_TAG="$2"
-    [ $# -ge 3 -a -n "$3" ] && export CI_RPM_KOJI_RAW="$3"
+    if [ $# -ge 3 ];then
+        eval "[ 0 -le $3 -o 0 -gt $3 ] > /dev/null 2>&1" || return $(false || echo $?)
+        [ -n "$3" ] && export CI_RPM_KOJI_RAW="$3"
+    fi
     export CI_RPM_KOJI_RPM_HOW_NEW=$(date -d '-1 week' +%s)
     if [ $# -ge 4 -a -n "$4" ];then
-         eval "date -d '$4' +%s > /dev/null 2>&1" || return $(false || echo $?)
-         export CI_RPM_KOJI_RPM_HOW_NEW=(date -d "$4" +%s)
+        eval "date -d '$4' +%s > /dev/null 2>&1" || return $(false || echo $?)
+        export CI_RPM_KOJI_RPM_HOW_NEW=(date -d "$4" +%s)
     fi
     echo ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6}:${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate}:${CI_RPM_KOJI_RAW:-1}:${CI_RPM_KOJI_RPM_HOW_NEW}
 }
@@ -244,10 +276,11 @@ function get_rpm_from_pkg {
     (
         LANG=C
         [ $# -eq 1 -a -n "$1" ] || return $(false || echo $?)
+        eval "[ 0 -le ${CI_RPM_KOJI_RAW:-1} -o 0 -gt ${CI_RPM_KOJI_RAW:-1} ] > /dev/null 2>&1" || return $(false || echo $?)
         if [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ];then
-            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | awk -F '/' '{print $NF}'
+            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | awk -F '/' '{print $NF}' | grep -e '^/' -e '\.rpm$' | tac
         else
-            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1"
+            koji list-tagged --quiet --paths --rpms ${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate} "$1" | grep -e '\.rpm$' | tac
         fi
     )
 }
@@ -268,11 +301,16 @@ function get_rpm_info_idx {
         build_id=$(echo "$s" | grep -e '^Build ID: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' | cut -d ' ' -f 1)
         task_id=$(echo "$s" | grep -e '^Build Task: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' | cut -d ' ' -f 1)
         built_time="$(echo "$s" | grep -e '^Built: ' | cut -s -d ':' -f 2 | sed -e 's/^\s*//' -e 's/\s*$//')"
+        built_time_utc=$(date +%s -d "${built_time}")
         [ -n "${build_id}" -a -n "${task_id}" -a -n "${built_time}" ] || return $(false || echo $?)
+        for num in ${build_id} ${task_id} ${built_time_utc};do
+            eval "[ 0 -le ${num} -o 0 -gt ${num} ] > /dev/null 2>&1" || return $(false || echo $?)
+        done
         s=$(koji buildinfo ${build_id})
         rpm_owner=$(echo "$s" | grep -e 'Built by: ' | cut -s -d ':' -f 2 |  sed -e 's/^\s*//' | cut -d ' ' -f 1)
         [ -n "${rpm_owner}" ] || return $(false || echo $?)
-        [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ] && built_time=$(date +%s -d "${built_time}")
+        eval "[ 0 -le ${CI_RPM_KOJI_RAW:-1} -o 0 -gt ${CI_RPM_KOJI_RAW:-1} ] > /dev/null 2>&1" || return $(false || echo $?)
+        [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ] && built_time=${built_time_utc}
         echo "${build_id}:${task_id}:${rpm_owner}:${built_time}"
     )
 }
@@ -284,16 +322,18 @@ function get_pkgs_info_idx {
     (
         LANG=C
         [ $# -ge 1 -a -n "$1" ] || return $(false || echo $?)
+        eval "[ 0 -le ${CI_RPM_KOJI_RPM_HOW_NEW:-0} ] > /dev/null 2>&1" || return $(false || echo $?)
         [ ${CI_RPM_KOJI_RPM_HOW_NEW:-0} -eq 0 ] && export CI_RPM_KOJI_RPM_HOW_NEW=$(date -d '-1 week' +%s)
         o=$(pwd)
         t=$(mktemp -d)
         cd $t
         for pkg in "$@";do
             rm -rf *
-            export CI_RPM_KOJI_RAW=$(true && echo $?)
-            get_rpm_from_pkg ${pkg} | tac > all_rpms_paths
-            touch tmp_all_rpms_paths
-            export CI_RPM_KOJI_RAW=$(false || echo $?)
+            (
+                export CI_RPM_KOJI_RAW=$(true && echo $?)
+                get_rpm_from_pkg ${pkg} > all_rpms_paths
+                touch tmp_all_rpms_paths
+            )
             for rpm_path in $(cat all_rpms_paths);do
                 rpm_path_regex=$(echo ${rpm_path} | sed -e 's/\./\\\./g')
                 grep -q -e "^${rpm_path_regex}\$" tmp_all_rpms_paths && continue 1
