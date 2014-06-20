@@ -56,14 +56,32 @@ script. Surely the remote server runs ssh daemon and the ssh daemon uses
 
 ## Functions in functions
 
+### Notice
+
+Now in the following functions, the argurment vaild_time all could be replaced by
+time literals that GNU date could accept.
+
+For example, you can check whether the tgt is vaild in future hours like this
+
+     is_tgt_vaild_after '+2 hour'
+
+Or just simply
+
+     is_tgt_valid_after '-2 hour'
+
+
 ### Functions to control [Kerberos](http://web.mit.edu/kerberos/) authentication
+
+    tgt_config [user [vaild_time [krb5_realm]]]]
+
+This should be the first functions that you should exec before the following functions
 
     is_krb5_full_principal [string]
     get_krb5_default_realm
     get_krb5_cache_file_name [user_name or kerb principal]
     is_tgt_forwardable [user_name or kerb principal]
-    is_tgt_vaild_after [[user_name or kerb principal] valid_time]
-    is_tgt_ok [[user_name or kerb principal] valid_time]
+    is_tgt_vaild_after [valid_time [user_name or kerb principal]]
+    is_tgt_ok [valid_time [user_name or kerb principal]]
     
 ### Functions to work with [ssh/sftp](http://www.openssh.com/)
 
