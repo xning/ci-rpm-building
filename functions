@@ -15,6 +15,8 @@
 # 1. Functions for kerberos #
 #############################
 
+# tgt_config [user [valid_time [realm]]]
+# tgt_config [principal [valid_time [realm]]]
 function tgt_config {
    export CI_RPM_TGT_USER=${USER}
    export CI_RPM_TGT_VALID_TIME=3600
@@ -29,8 +31,8 @@ function tgt_config {
        fi
    fi
    if [ $# -ge 3 -a -n "$3" ];then
-       ts=$(echo ${krb_domain} | tr a-z A-Z)
-       [ "${ts}" != "${krb_domain}" ] && return $(false || echo $?)
+       ts=$(echo $3 | tr a-z A-Z)
+       [ "${ts}" != "$3" ] && return $(false || echo $?)
        export CI_RPM_TGT_REALM="$3"
    fi
    echo "${CI_RPM_TGT_USER}:${CI_RPM_TGT_VALID_TIME}:${CI_RPM_TGT_REALM}"
