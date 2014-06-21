@@ -15,27 +15,33 @@
 # 1. Functions for kerberos #
 #############################
 
-# tgt_config [user [valid_time [realm]]]
-# tgt_config [principal [valid_time [realm]]]
+# tgt_config [valid_time [uesr [realm]]]
+# tgt_config [valid_time [principal]]
+# tgt_config [valid_time [principal [realm]]]
 function tgt_config {
-   export CI_RPM_TGT_USER=${USER}
-   export CI_RPM_TGT_VALID_TIME=3600
-   export CI_RPM_TGT_REALM=''
-   [ $# -ge 1 -a -n "$1" ] && export CI_RPM_TGT_USER="$1"
-   if [ $# -ge 2 -a -n "$2" ];then
-       if eval "[ 0 -le '$2' -a 0 -gt '$2' ] > /dev/null 2>&1";then
-           export CI_RPM_TGT_VALID_TIME=$(($2+$(date +%s)))
+   if [ $# -ge 1 -a -n "$1" ];then
+       if eval "[ 0 -le '$1' ] > /dev/null 2>&1";then
+           export CI_RPM_TGT_VALID_TIME=$(($1+$(date +%s)))
        else
-           eval "date -d '$2' +%s > /dev/null 2>&1" || return $(false || echo $?)
-           export CI_RPM_TGT_VALID_TIME=$(date -d "$2" +%s)
+           eval "date -d '$1' +%s > /dev/null 2>&1" || return $(false || echo $?)
+           export CI_RPM_TGT_VALID_TIME=$(date -d "$1" +%s)
        fi
    fi
+   [ $# -ge 2 -a -n "$2" ] && export CI_RPM_TGT_USER="$2"
    if [ $# -ge 3 -a -n "$3" ];then
        ts=$(echo $3 | tr a-z A-Z)
        [ "${ts}" != "$3" ] && return $(false || echo $?)
        export CI_RPM_TGT_REALM="$3"
    fi
-   echo "${CI_RPM_TGT_USER}:${CI_RPM_TGT_VALID_TIME}:${CI_RPM_TGT_REALM}"
+   if [ -z "${CI_RPM_TGT_REALM}" -a -n "${CI_RPM_TGT_USER}" ];then
+       krb_domain=$(echo "${CI_RPM_TGT_USER}" | cut -s -d '@' -f 2)
+       if [ -n "${krb_domain}" ];then
+           ts=$(echo ${krb_domain} | tr a-z A-Z)
+           [ "${ts}" != "${krb_domain}" ] && return $(false || echo $?)
+           CI_RPM_TGT_REALM="${krb_domain}"
+       fi
+   fi
+   echo "${CI_RPM_TGT_USER:-${USER}}:${CI_RPM_TGT_VALID_TIME:-3600}:${CI_RPM_TGT_REALM:-}"
 }
 
 # Accept string as argument and check whether the string is like this:
@@ -104,7 +110,11 @@ function is_tgt_forwardable {
         [ $# -ge 1 -a -n "$1" ] && user="$1"
         [ -z "${user}" -a -n "${CI_RPM_TGT_USER}" ] && user="${CI_RPM_TGT_USER}"
         if ! is_krb5_full_principal "${user:-${USER}}";then
-            user="${user:-${USER}}@$(get_krb5_default_realm)"
+            if [ -z "${CI_RPM_TGT_REALM}" ];then
+                user="${user:-${USER}}@$(get_krb5_default_realm)"
+            else
+                user="${user:-${USER}}@${CI_RPM_TGT_REALM}"
+            fi
             is_krb5_full_principal "${user}" || return $(false || echo $?)
         fi
         cache_file=$(get_krb5_cache_file_name "${user}")
@@ -113,6 +123,7 @@ function is_tgt_forwardable {
         return $(true && echo $?)
     )
 }
+
 # is_tgt_valid_after 1st argument could accept time literals and seconds numbers
 # as its 1st arguments. The time literals will translate to a UTC time by GNU date
 # command.
@@ -129,13 +140,13 @@ function is_tgt_forwardable {
 # is_tgt_valid_after [time_literal [kerb_full_principal]]
 # F.g.
 # is_tgt_valid_after '2 hour'
-function is_tgt_vaild_after {
+function is_tgt_valid_after {
     (
         LANG=C
         [ -n "${CI_RPM_TGT_VALID_TIME}" ] && expect_time=${CI_RPM_TGT_VALID_TIME}
         valid_time=300
         if [ $# -ge 1 ];then
-            if eval "[ 0 -lt '$1' ] > /dev/null 2>&1";then
+            if eval "[ 0 -le '$1' ] > /dev/null 2>&1";then
                 [ -n "$1" ] && valid_time=$1
             else
                 eval "date -d '$1' +%s > /dev/null 2>&1" || return $(false || echo $?)
@@ -156,7 +167,7 @@ function is_tgt_vaild_after {
         [ -z "${cache_file}" ] && return $(false || echo $?)
         expire_time=$(date -d "$(LC_TIME=C klist ${cache_file} | grep 'krbtgt/' | head -1 | sed 's/ \+/ /g' | cut -s -d ' ' -f 3-4)" +"%s")
         eval "[ 0 -lt '${expire_time}' ] >/dev/null 2>&1" || return $(false || echo $?)
-        [ ${expect_time:-0} -eq 0 ] || expect_time=$(date -d "${valid_time} seconds" +"%s")
+        [ ${expect_time:-0} -eq 0 ] && expect_time=$(date -d "${valid_time} seconds" +"%s")
         [ ${expire_time} -gt ${expect_time} ] && return $(true && echo $?)
         return $(false || echo $?)
     )
@@ -197,7 +208,7 @@ function is_tgt_ok {
             is_krb5_full_principal "${user}" || return $(false || echo $?)
         fi
         is_tgt_forwardable "${user}" || return $(false || echo $?)
-        is_tgt_vaild_after "${valid_time:-300}" "${user}" || return $(false || echo $?)
+        is_tgt_valid_after "${valid_time:-300}" "${user}" || return $(false || echo $?)
         return $(true && echo $?)
     )
 }
@@ -219,10 +230,6 @@ function is_tgt_ok {
 # ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
 # ssh_config [server [user [workdir [hash_known_host]]]]
 function ssh_config {
-    export CI_RPM_SSH_SERVER=localhost
-    export CI_RPM_SSH_USER=${USER}
-    export CI_RPM_SSH_WORK_DIR='~'
-    export CI_RPM_SSH_HASH_KNOWN_HOSTS=$(true && echo $?)
     [ $# -ge 1 -a -n "$1" ] && export CI_RPM_SSH_SERVER=$1
     [ $# -ge 2 -a -n "$2" ] && export CI_RPM_SSH_USER=$2
     [ $# -ge 3 -a -n "$3" ] && export CI_RPM_SSH_WORK_DIR=$3
@@ -233,7 +240,7 @@ function ssh_config {
             return $(false || echo $?)
         fi
     fi
-    echo "${CI_RPM_SSH_SERVER}:${CI_RPM_SSH_USER}:${CI_RPM_SSH_WORK_DIR}:${CI_RPM_SSH_HASH_KNOWN_HOSTS}"
+    echo "${CI_RPM_SSH_SERVER:-localhost}:${CI_RPM_SSH_USER:-${USER}}:${CI_RPM_SSH_WORK_DIR:-}:${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0}"
 }
 
 # Will automatically import ssh server key and try login in.
@@ -256,7 +263,7 @@ function ssh_upload {
     (
         LANG=C
         t=$(mktemp)
-        [ -n "${CI_RPM_SSH_WORK_DIR}" -a "${CI_RPM_SSH_WORK_DIR}" != '~' ] && echo "cd '${CI_RPM_SSH_WORK_DIR}'" > $t
+        [ -n "${CI_RPM_SSH_WORK_DIR:-}" -a "${CI_RPM_SSH_WORK_DIR:-}" != '~' ] && echo "cd '${CI_RPM_SSH_WORK_DIR}'" > $t
         for f in "$@";do [ -n "$f" ] && echo "put '$f'" >> $t;done
         sftp -oPasswordAuthentication=no -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
         ret=$?
@@ -270,7 +277,7 @@ function ssh_download {
     (
         LANG=C
         t=$(mktemp)
-        [ -n "${CI_RPM_SSH_WORK_DIR}" -a "${CI_RPM_SSH_WORK_DIR}" != '~' ] && echo "cd '${CI_RPM_SSH_WORK_DIR}'" > $t
+        [ -n "${CI_RPM_SSH_WORK_DIR:-}" -a "${CI_RPM_SSH_WORK_DIR:-}" != '~' ] && echo "cd '${CI_RPM_SSH_WORK_DIR}'" > $t
         for f in "$@";do [ -n "$f" ] && echo "get '$f'" >> $t;done
         sftp -oPasswordAuthentication=no -oGSSAPIAuthentication=yes -b $t ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost}
         ret=$?
@@ -285,7 +292,7 @@ function ssh_exec {
     (
         LANG=C
         for c in "$@";do { [ -z "$s" -a -n "$c" ] && s=$c; } || { [ -n "$c" ] && s="$s;$c"; } done
-        [ -n "${CI_RPM_SSH_WORK_DIR}" -a "${CI_RPM_SSH_WORK_DIR}" != '~' ] && s="cd '${CI_RPM_SSH_WORK_DIR}';$s"
+        [ -n "${CI_RPM_SSH_WORK_DIR:-}" -a "${CI_RPM_SSH_WORK_DIR:-}" != '~' ] && s="cd '${CI_RPM_SSH_WORK_DIR}';$s"
         ssh -oPasswordAuthentication=no -K ${CI_RPM_SSH_USER:-${USER}}@${CI_RPM_SSH_SERVER:-localhost} "$s"
     )
 }
@@ -307,7 +314,7 @@ function ssh_exec {
 # date +%s -d '-1 hour'
 # You can also use 'second, minute, week, month, and year'.
 # Surely you can give UTC time directly.
-# Surely, you can export
+# Surely, you can export CI_RPM_KOJI_RPM_HOW_NEW youself.
 # koji_config [build_tag [presult_tag [raw_data [how_new]]]] 
 function koji_config {
     [ $# -ge 1 -a -n "$1" ] && export CI_RPM_KOJI_BUILD_TAG="$1"
@@ -409,10 +416,10 @@ function get_pkgs_info_idx {
         cd $t
         for pkg in "$@";do
             rm -rf *
+            touch tmp_all_rpms_paths
             (
                 export CI_RPM_KOJI_RAW=$(true && echo $?)
                 get_rpm_from_pkg ${pkg} > all_rpms_paths
-                touch tmp_all_rpms_paths
             )
             for rpm_path in $(cat all_rpms_paths);do
                 rpm_path_regex=$(echo ${rpm_path} | sed -e 's/\./\\\./g')

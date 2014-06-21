@@ -1,4 +1,4 @@
-###### CI-RPM-Building ######
+# CI-RPM-Building #
 
 ## Why we need ci-rpm-building?
 
@@ -58,21 +58,23 @@ script. Surely the remote server runs ssh daemon and the ssh daemon uses
 
 ### Notice
 
-Now in the following functions, the argurment vaild_time all could be replaced by
+Now in the following functions, the argurment valid_time all could be replaced by
 time literals that GNU date could accept.
 
-For example, you can check whether the tgt is vaild in future hours like this
+For example, you can check whether the tgt is valid in future hours like this
 
-     is_tgt_vaild_after '+2 hour'
+     is_tgt_valid_after '+2 hour'
 
 Or just simply
 
      is_tgt_valid_after '-2 hour'
 
 
+Now these functions only work on [Bash](http://www.gnu.org/software/bash/).
+
 ### Functions to control [Kerberos](http://web.mit.edu/kerberos/) authentication
 
-    tgt_config [user [vaild_time [krb5_realm]]]]
+    tgt_config [valid_time [user [krb5_realm]]]]
 
 This should be the first functions that you should exec before the following functions
 
@@ -80,7 +82,7 @@ This should be the first functions that you should exec before the following fun
     get_krb5_default_realm
     get_krb5_cache_file_name [user_name or kerb principal]
     is_tgt_forwardable [user_name or kerb principal]
-    is_tgt_vaild_after [valid_time [user_name or kerb principal]]
+    is_tgt_valid_after [valid_time [user_name or kerb principal]]
     is_tgt_ok [valid_time [user_name or kerb principal]]
     
 ### Functions to work with [ssh/sftp](http://www.openssh.com/)
