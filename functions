@@ -11,6 +11,15 @@
 #
 # These functions are supposed to run only in bash, thanks.
 
+# How to resolve the re-import problem?
+# If I have imported this lib in some place, is that OK we import it
+# again?
+(
+    for f in tgt_config ssh_config koji_config;do
+        eval "${f} > /dev/null 2>&1" && exit $(true && echo $?)
+    done
+)
+
 #############################
 # 1. Functions for kerberos #
 #############################
