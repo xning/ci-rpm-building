@@ -24,16 +24,20 @@
 # 1. Functions for kerberos #
 #############################
 
+# 3153600000 seconds=100 years
 # tgt_config [valid_time [uesr [realm]]]
 # tgt_config [valid_time [principal]]
 # tgt_config [valid_time [principal [realm]]]
 function tgt_config {
    if [ $# -ge 1 -a -n "$1" ];then
-       if eval "[ 0 -le '$1' ] > /dev/null 2>&1";then
-           export CI_RPM_TGT_VALID_TIME=$(($1+$(date +%s)))
+       if eval "[ '$1' -gt 0 -a '$1' -le 3153600000 ] > /dev/null 2>&1";then
+           export CI_RPM_TGT_VALID_TIME=$1
+       elif eval "date -d '$1' +%s > /dev/null 2>&1";then
+           curr_time=$(date +%s)
+           CI_RPM_TGT_VALID_TIME=$(($(date -d "$1" +%s)-$(date +%s)))
+           [ ${curr_time} -gt ${CI_RPM_TGT_VALID_TIME} ] && return $(false || echo $?)
        else
-           eval "date -d '$1' +%s > /dev/null 2>&1" || return $(false || echo $?)
-           export CI_RPM_TGT_VALID_TIME=$(date -d "$1" +%s)
+           return $(false || echo $?)
        fi
    fi
    [ $# -ge 2 -a -n "$2" ] && export CI_RPM_TGT_USER="$2"
@@ -50,7 +54,10 @@ function tgt_config {
            CI_RPM_TGT_REALM="${krb_domain}"
        fi
    fi
-   echo "${CI_RPM_TGT_USER:-${USER}}:${CI_RPM_TGT_VALID_TIME:-3600}:${CI_RPM_TGT_REALM:-}"
+   export CI_RPM_TGT_VALID_TIME=${CI_RPM_TGT_VALID_TIME:-300}
+   export CI_RPM_TGT_USER=${CI_RPM_TGT_USER:-${USER}}
+   export CI_RPM_TGT_REALM=${CI_RPM_TGT_REALM:-$(get_krb5_default_realm)}
+   echo "${CI_RPM_TGT_USER}:${CI_RPM_TGT_VALID_TIME}:${CI_RPM_TGT_REALM}"
 }
 
 # Accept string as argument and check whether the string is like this:
@@ -149,17 +156,30 @@ function is_tgt_forwardable {
 # is_tgt_valid_after [time_literal [kerb_full_principal]]
 # F.g.
 # is_tgt_valid_after '2 hour'
+# Notice here CI_RPM_TGT_VALID_TIME is always the time interval after
+# current time.
+# 3153600000 seconds=100 years
 function is_tgt_valid_after {
     (
         LANG=C
-        [ -n "${CI_RPM_TGT_VALID_TIME}" ] && expect_time=${CI_RPM_TGT_VALID_TIME}
-        valid_time=300
-        if [ $# -ge 1 ];then
-            if eval "[ 0 -le '$1' ] > /dev/null 2>&1";then
-                [ -n "$1" ] && valid_time=$1
+        if [ -n "${CI_RPM_TGT_VALID_TIME}" ];then
+            if eval "[ '${CI_RPM_TGT_VALID_TIME}' -ge 0 -a '${CI_RPM_TGT_VALID_TIME}' -le 3153600000 ] > /dev/null 2>&1";then
+                valid_time=${CI_RPM_TGT_VALID_TIME}
+            elif eval "date -d '${CI_RPM_TGT_VALID_TIME}' +%s > /dev/null 2>&1";then
+                curr_time=$(date +%s)
+                expect_time=$(date -d "${CI_RPM_TGT_VALID_TIME}" +%s)
+                [ ${curr_time} -ge ${expect_time} ] && return $(false || echo $?)
             else
-                eval "date -d '$1' +%s > /dev/null 2>&1" || return $(false || echo $?)
+                return $(false || echo $?)
+            fi
+        fi
+        if [ $# -ge 1 -a -n "$1" ];then
+            if eval "[ '$1' -gt 0 -a '$1' -le 3153600000 ] > /dev/null 2>&1";then
+                valid_time=$1
+            elif eval "date -d '$1' +%s > /dev/null 2>&1";then
+                curr_time=$(date +%s)
                 expect_time=$(date -d "$1" +%s)
+                [ ${curr_time} -ge ${expect_time} ] && return $(false || echo $?)
             fi
         fi
         [ $# -ge 1 -a -n "$2" ] && user="$2"
@@ -176,7 +196,7 @@ function is_tgt_valid_after {
         [ -z "${cache_file}" ] && return $(false || echo $?)
         expire_time=$(date -d "$(LC_TIME=C klist ${cache_file} | grep 'krbtgt/' | head -1 | sed 's/ \+/ /g' | cut -s -d ' ' -f 3-4)" +"%s")
         eval "[ 0 -lt '${expire_time}' ] >/dev/null 2>&1" || return $(false || echo $?)
-        [ ${expect_time:-0} -eq 0 ] && expect_time=$(date -d "${valid_time} seconds" +"%s")
+        [ ${expect_time:-0} -eq 0 ] && expect_time=$(date -d "${valid_time:-300} seconds" +"%s")
         [ ${expire_time} -gt ${expect_time} ] && return $(true && echo $?)
         return $(false || echo $?)
     )
@@ -193,17 +213,34 @@ function is_tgt_valid_after {
 # is_tgt_ok [time_literal [kerb_full_principal]]
 # F.g.
 # is_tgt_ok '2 hour'
+# Notice here CI_RPM_TGT_VALID_TIME is always the time interval after
+# current time.
+# 3153600000 seconds=100 years
 function is_tgt_ok {
     (
         LANG=C
-        [ -n "${CI_RPM_TGT_VALID_TIME}" ] && expect_time=${CI_RPM_TGT_VALID_TIME}
-        if [ $# -ge 1 ];then
-            if eval "[ 0 -lt '$1' ] > /dev/null 2>&1";then
-                [ -n "$1" ] && valid_time=$1
+        if [ -n "${CI_RPM_TGT_VALID_TIME}" ];then
+            if eval "[ '${CI_RPM_TGT_VALID_TIME}' -ge 0 -a '${CI_RPM_TGT_VALID_TIME}' -le 3153600000 ] > /dev/null 2>&1";then
+                valid_time=${CI_RPM_TGT_VALID_TIME}
+            elif eval "date -d '${CI_RPM_TGT_VALID_TIME}' +%s > /dev/null 2>&1";then
+                curr_time=$(date +%s)
+                expect_time=$(date -d "${CI_RPM_TGT_VALID_TIME}" +%s)
+                [ ${curr_time} -ge ${expect_time} ] && return $(false || echo $?)
+                valid_time=$(($(date -d "${CI_RPM_TGT_VALID_TIME}" +%s)-$(date +%s)))
             else
-                eval "date -d '$1' +%s > /dev/null 2>&1" || return $(false || echo $?)
+                return $(false || echo $?)
+            fi
+        fi
+        if [ $# -ge 1 -a -n "$1" ];then
+            if eval "[ '$1' -gt 0 -a '$1' -le 3153600000 ] > /dev/null 2>&1";then
+                valid_time=$1
+            elif eval "date -d '$1' +%s > /dev/null 2>&1";then
+                curr_time=$(date +%s)
                 expect_time=$(date -d "$1" +%s)
+                [ ${curr_time} -ge ${expect_time} ] && return $(false || echo $?)
                 valid_time=$((${expect_time}-$(date +%s)))
+            else
+                return $(false || echo $?)
             fi
         fi
         [ $# -ge 2 -a -n "$2" ] && user="$2"
@@ -239,17 +276,21 @@ function is_tgt_ok {
 # ssh_config 192.168.11.231 anzhou94 '/home/anzhou94/'
 # ssh_config [server [user [workdir [hash_known_host]]]]
 function ssh_config {
-    [ $# -ge 1 -a -n "$1" ] && export CI_RPM_SSH_SERVER=$1
-    [ $# -ge 2 -a -n "$2" ] && export CI_RPM_SSH_USER=$2
-    [ $# -ge 3 -a -n "$3" ] && export CI_RPM_SSH_WORK_DIR=$3
+    [ $# -ge 1 -a -n "$1" ] && CI_RPM_SSH_SERVER=$1
+    [ $# -ge 2 -a -n "$2" ] && CI_RPM_SSH_USER=$2
+    [ $# -ge 3 -a -n "$3" ] && CI_RPM_SSH_WORK_DIR=$3
     if [ $# -ge 4 ];then
         if eval "[ 0 -le '$4' -o 0 -gt '$4' ] > /dev/null 2>&1";then
-            [ -n "$4" ] && export CI_RPM_SSH_HASH_KNOWN_HOSTS=$4
+            [ -n "$4" ] && CI_RPM_SSH_HASH_KNOWN_HOSTS=$4
         else
             return $(false || echo $?)
         fi
     fi
-    echo "${CI_RPM_SSH_SERVER:-localhost}:${CI_RPM_SSH_USER:-${USER}}:${CI_RPM_SSH_WORK_DIR:-}:${CI_RPM_SSH_HASH_KNOWN_HOSTS:-0}"
+    export CI_RPM_SSH_SERVER=${CI_RPM_SSH_SERVER:-localhost}
+    export CI_RPM_SSH_USER=${CI_RPM_SSH_USER:-${USER}}
+    export CI_RPM_SSH_WORK_DIR=${CI_RPM_SSH_WORK_DIR:-}
+    export CI_RPM_SSH_HASH_KNOWN_HOSTS=${CI_RPM_SSH_HASH_KNOWN_HOSTS:-$(true && echo $?)}
+    echo "${CI_RPM_SSH_SERVER}:${CI_RPM_SSH_USER}:${CI_RPM_SSH_WORK_DIR}:${CI_RPM_SSH_HASH_KNOWN_HOSTS}"
 }
 
 # Will automatically import ssh server key and try login in.
@@ -322,26 +363,42 @@ function ssh_exec {
 # date +%s -d '-1 day'
 # date +%s -d '-1 hour'
 # You can also use 'second, minute, week, month, and year'.
-# Surely you can give UTC time directly.
+# Notice here CI_RPM_KOJI_RPM_HOW_NEW is always the time interval after
+# current time.
+# 3153600000 seconds=100 years
 # Surely, you can export CI_RPM_KOJI_RPM_HOW_NEW youself.
 # koji_config [build_tag [presult_tag [raw_data [how_new]]]] 
 function koji_config {
-    [ $# -ge 1 -a -n "$1" ] && export CI_RPM_KOJI_BUILD_TAG="$1"
-    [ $# -ge 2 -a -n "$2" ] && export CI_RPM_KOJI_RESULT_TAG="$2"
-    if [ $# -ge 3 ];then
-        eval "[ 0 -le '$3' -o 0 -gt '$3' ] > /dev/null 2>&1" || return $(false || echo $?)
-        [ -n "$3" ] && export CI_RPM_KOJI_RAW="$3"
+    [ $# -ge 1 -a -n "$1" ] && CI_RPM_KOJI_BUILD_TAG="$1"
+    [ $# -ge 2 -a -n "$2" ] && CI_RPM_KOJI_RESULT_TAG="$2"
+    if [ $# -ge 3 -a -n "$3" ];then
+        eval "[ '$3' -eq $(true && echo $?) -o '$3' -eq $(false || echo $?) ] > /dev/null 2>&1" || return $(false || echo $?)
+        CI_RPM_KOJI_RAW="$3"
     fi
-    export CI_RPM_KOJI_RPM_HOW_NEW=$(date -d '-1 week' +%s)
+    CI_RPM_KOJI_RPM_HOW_NEW='-1 week'
     if [ $# -ge 4 -a -n "$4" ];then
-        if eval "[ 0 -le '$4' -a 0 -gt '$4' ] > /dev/null 2>&1";then
-            export CI_RPM_KOJI_RPM_HOW_NEW=$4
+        if eval "[ '$4' -le 3153600000 -o '$4' -gt -3153600000 ] > /dev/null 2>&1";then
+            if [ '$4' -ge 0 ];then
+                CI_RPM_KOJI_RPM_HOW_NEW=$((0-$4))
+            else
+                CI_RPM_KOJI_RPM_HOW_NEW=$4
+            fi
         else
             eval "date -d '$4' +%s > /dev/null 2>&1" || return $(false || echo $?)
-            export CI_RPM_KOJI_RPM_HOW_NEW=$(date -d "$4" +%s)
+            curr_time=$(date +%s)
+            CI_RPM_KOJI_RPM_HOW_NEW=$(date -d "$4" +%s)
+            if [ ${curr_time} -le ${CI_RPM_KOJI_RPM_HOW_NEW} ];then
+                CI_RPM_KOJI_RPM_HOW_NEW=$((${curr_time}-${CI_RPM_KOJI_RPM_HOW_NEW}))
+            else
+                CI_RPM_KOJI_RPM_HOW_NEW=$((${CI_RPM_KOJI_RPM_HOW_NEW}-${curr_time}))
+            fi
         fi
     fi
-    echo ${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6}:${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate}:${CI_RPM_KOJI_RAW:-1}:${CI_RPM_KOJI_RPM_HOW_NEW}
+    export CI_RPM_KOJI_BUILD_TAG=${CI_RPM_KOJI_BUILD_TAG:-eng-rhel-6}
+    export CI_RPM_KOJI_RESULT_TAG=${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate}
+    export CI_RPM_KOJI_RAW=${CI_RPM_KOJI_RAW:-$(false || echo $?)}
+    export CI_RPM_KOJI_RPM_HOW_NEW=${CI_RPM_KOJI_RPM_HOW_NEW:-'-1 week'}
+    echo ${CI_RPM_KOJI_BUILD_TAG}:${CI_RPM_KOJI_RESULT_TAG}:${CI_RPM_KOJI_RAW}:${CI_RPM_KOJI_RPM_HOW_NEW}
 }
 
 function have_koji_to_login {
@@ -367,9 +424,9 @@ function get_rpm_from_pkg {
     (
         LANG=C
         [ $# -eq 1 -a -n "$1" ] || return $(false || echo $?)
-        eval "[ 0 -le '${CI_RPM_KOJI_RAW:-1}' -o 0 -gt '${CI_RPM_KOJI_RAW:-1}' ] > /dev/null 2>&1" || return $(false || echo $?)
+        eval "[ 0 -le '${CI_RPM_KOJI_RAW:-$(false || echo $?)}' -o 0 -gt '${CI_RPM_KOJI_RAW:-$(false || echo $?)}' ] > /dev/null 2>&1" || return $(false || echo $?)
         s=$(koji list-tagged --quiet --paths --rpms "${CI_RPM_KOJI_RESULT_TAG:-eng-rhel-6-candidate}" "$1")
-        if [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ];then
+        if [ ${CI_RPM_KOJI_RAW:-$(false || echo $?)} -eq $(false || echo $?) ];then
             echo "$s" | awk -F '/' '{print $NF}' | grep -e '^/' -e '\.rpm$' | tac
         else
             echo "$s" | grep -e '\.rpm$' | tac
@@ -405,12 +462,13 @@ function get_rpm_info_idx {
         s=$(koji buildinfo ${build_id})
         rpm_owner=$(echo "$s" | grep -e 'Built by: ' | cut -s -d ':' -f 2 |  sed -e 's/^\s*//' | cut -d ' ' -f 1)
         [ -n "${rpm_owner}" ] || return $(false || echo $?)
-        eval "[ 0 -le '${CI_RPM_KOJI_RAW:-1}' -o 0 -gt '${CI_RPM_KOJI_RAW:-1}' ] > /dev/null 2>&1" || return $(false || echo $?)
-        [ ${CI_RPM_KOJI_RAW:-1} -eq 1 ] && built_time=${built_time_utc}
+        eval "[ $(true && echo $?) -eq '${CI_RPM_KOJI_RAW:-$(false || echo $?)}' -o $(false || echo $?) -eq '${CI_RPM_KOJI_RAW:-$(false || echo $?)}' ] > /dev/null 2>&1" || return $(false || echo $?)
+        [ ${CI_RPM_KOJI_RAW:-$(false || echo $?)} -eq $(false || echo $?) ] && built_time=${built_time_utc}
         echo "${build_id}:${task_id}:${rpm_owner}:${built_time}"
     )
 }
 
+# 3153600000 seconds=100 years
 # This function will output such infos
 #     pkg_name:build_id:task_id:rpm_owner:built_time
 # get_pkgs_info_idx pkg1 [pkg2 [...]]
@@ -418,8 +476,19 @@ function get_pkgs_info_idx {
     (
         LANG=C
         [ $# -ge 1 -a -n "$1" ] || return $(false || echo $?)
-        eval "[ 0 -le '${CI_RPM_KOJI_RPM_HOW_NEW:-0}' ] > /dev/null 2>&1" || return $(false || echo $?)
-        [ ${CI_RPM_KOJI_RPM_HOW_NEW:-0} -eq 0 ] && export CI_RPM_KOJI_RPM_HOW_NEW=$(date -d '-1 week' +%s)
+        if [ -n "${CI_RPM_KOJI_RPM_HOW_NEW}" ];then
+            curr_time=$(date +%s)
+            if eval "[ '${CI_RPM_KOJI_RPM_HOW_NEW}' -le 3153600000 -o '${CI_RPM_KOJI_RPM_HOW_NEW}' -gt -3153600000 ] > /dev/null 2>&1";then
+                expect_time=$(date -d "${CI_RPM_KOJI_RPM_HOW_NEW} seconds" +%s)
+            else
+                eval "date -d '${CI_RPM_KOJI_RPM_HOW_NEW}' +%s > /dev/null 2>&1" || return $(false || echo $?)
+                expect_time=$(date -d "${CI_RPM_KOJI_RPM_HOW_NEW}" +%s)
+            fi
+            if [ ${curr_time} -le ${expect_time} ];then
+                expect_time=$(date -d "$((0-$((${expect_time}-${curr_time})))) seconds" +%s)
+            fi
+        fi
+        [ ${expect_time:-0} -eq 0 ] && expect_time=$(date -d '-1 week' +%s)
         o=$(pwd)
         t=$(mktemp -d)
         cd $t
@@ -436,7 +505,7 @@ function get_pkgs_info_idx {
                 rpm=$(echo ${rpm_path} | awk -F '/' '{print $NF}')
                 s=$(get_rpm_info_idx $rpm)
                 built_time=$(echo $s | cut -s -d ':' -f 4)
-                [ ${CI_RPM_KOJI_RPM_HOW_NEW:-0} -le ${built_time} ] || continue 2
+                [ ${expect_time:-0} -le ${built_time} ] || continue 2
                 build_id=$(echo $s | cut -s -d ':' -f 1)
                 [ -n "${build_id}" ] || return $(false || echo $?) 
                 koji buildinfo ${build_id} | grep -e '^/' -e '\.rpm$' >> tmp_all_rpms_paths
