@@ -14,10 +14,31 @@
 # How to resolve the re-import problem?
 # If I have imported this lib in some place, is that OK we import it
 # again?
+# Yes, we can resolve this problem. While The bad news is, now this lib
+# has a state. It's not stateless. 
 (
-    for f in tgt_config ssh_config koji_config;do
-        eval "${f} > /dev/null 2>&1" && exit $(true && echo $?)
-    done
+    function id_this_lib {
+        o=$(pwd)
+        this_lib=$(caller | tr '\t' ' ' | tr -s ' ' | cut -d ' ' -f 2)
+        this_lib_name=$(basename "${this_lib}")
+        this_lib_locaiton=$(dirname "${this_lib}")
+        cd ${this_lib_locaiton}
+        if [ -e ".${this_lib_name}.sha1" ];then
+            for f in tgt_config ssh_config koji_config;do
+                if eval "${f} > /dev/null 2>&1";then
+                    if sha1sum --quiet --status -c ".${this_lib_name}.sha1";then
+                        cd ${o} && exit $(true && echo $?)
+                    else
+                        sha1sum "${this_lib_name}" > ".${this_lib_name}.sha1"
+                    fi
+                fi
+            done
+        else
+          sha1sum "${this_lib_name}" > ".${this_lib_name}.sha1"  
+        fi
+        cd ${o}
+    }
+    id_this_lib
 )
 
 #############################
